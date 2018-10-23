@@ -2,19 +2,23 @@
 """
 
 Tools to summarise access-om2 runs.
-Also includes a command-line interface.
+Should be run from an ACCESS-OM2 control directory.
 
 Latest version: https://github.com/aekiss/run_summary
 Author: Andrew Kiss https://github.com/aekiss
 Apache 2.0 License http://www.apache.org/licenses/LICENSE-2.0.txt
 """
-# import copy
-# import time
-# import datetime
 import re
 import glob
 import subprocess
 import datetime
+
+# on NCI the folllowing may require
+# module use /g/data3/hh5/public/modules
+# module load conda/analysis3
+import yaml
+import f90nml  # from https://f90nml.readthedocs.io/en/latest/
+
 
 def parse_pbs_log(fname):
     """
@@ -74,7 +78,7 @@ def parse_pbs_log(fname):
         return int(round(n*units[s[m.end(0):]]))
 
     search_items = {  # keys are strings to search for; items are functions to apply to whitespace-delimited list of strings following key
-        'git commit': getrun,
+        'git commit': getrun,  # NB: run with this number might have failed - check Exit Status
         'Resource Usage on': getdatetime,
         'Job Id': getjob,
         'Project': null,
@@ -112,6 +116,7 @@ def parse_pbs_log(fname):
 
 # print(parse_pbs_log('archive/pbs_logs/01deg_jra55_iaf.o678614'))
 
+
 def parse_git_log(datestr):
     """
     Returns dict of items from git log on given date.
@@ -119,35 +124,25 @@ def parse_git_log(datestr):
     datestr: date string
 
     output: dict
-
-    example of git log content to parse:
-        commit 4822bfeef6c5649b4f470906c44f8427ed9e4151
-        Author: Andrew Kiss <aek156@r358.(none)>
-        Date:   Fri Sep 14 04:55:09 2018 +1000
-
-            2018-09-14 04:55:09: Run 92
     """
     # possible BUG: what time zone flag should be use? local is problematic if run from overseas....?
-    # BUG: this won't work - result is status not stdout
-    # TODO: use git log --format: to get what we want in an easily-parsed format
-    # log = run('git log -1 `git rev-list -1 --date=local --before="'
-              # + datestr + '" HEAD`'.split())
-    # p = subprocess.Popen('git log -1 --format:"%H%n%an%n%aI" `git rev-list -1 --date=local --before="'
-    #                    + datestr + '" HEAD`', stdout=subprocess.PIPE, shell=True)
     # use Popen for backwards-compatiblity with Python <2.7
-    p = subprocess.Popen('git log -1 --pretty="format:%H%x09%an%x09%aI" '
+    # pretty format is tab-delimited (%x09)
+    p = subprocess.Popen('git log -1 --pretty="format:%H%x09%an%x09%aI%x09%B" '
                          + '`git rev-list -1 --date=local --before="'
-                         + datestr + '" HEAD`', stdout=subprocess.PIPE, shell=True)
-    log = p.communicate()[0].decode('ascii').encode('ascii').split('\t')
-    # print(log)
+                         + datestr + '" HEAD`',
+                         stdout=subprocess.PIPE, shell=True)
+    log = p.communicate()[0].decode('ascii').split('\t')
+    # log = p.communicate()[0].decode('ascii').encode('ascii').split('\t')  # for python 2.6
     parsed_items = dict()
     parsed_items['Commit'] = log[0]
     parsed_items['Author'] = log[1]
     parsed_items['Date'] = log[2]
-    # print(parsed_items)
+    parsed_items['Message'] = log[3].strip()
     return parsed_items
 
 # print(parse_git_log('2018-09-14T04:55:22'))
+
 
 def parse_mom_time_stamp(run):
     """
@@ -177,25 +172,113 @@ def parse_mom_time_stamp(run):
     return parsed_items
 
 
+def parse_config_yaml(run):
+    """
+    Returns dict of items from parsed config.yaml.
+
+    run: run number
+
+    output: dict
+    """
+    parsed_items = dict()
+    fname = 'archive/output' + str(run).zfill(3) + '/config.yaml'
+    with open(fname, 'r') as infile:
+        parsed_items = yaml.load(infile)
+    return parsed_items
+
+
+def parse_accessom2_nml(run):
+    """
+    Returns dict of items from parsed accessom2.nml.
+
+    run: run number
+
+    output: dict
+    """
+    parsed_items = dict()
+    fname = 'archive/output' + str(run).zfill(3) + '/accessom2.nml'
+    parsed_items = f90nml.read(fname)
+    return parsed_items
+
+
+def parse_nml(run):
+    """
+    Returns dict of items from parsed namelists.
+
+    run: run number
+
+    output: dict
+    """
+    dir = 'archive/output' + str(run).zfill(3) + '/'
+    # print(dir)
+    # fnames = glob.glob(dir + '*/*.nml').append(dir + 'accessom2.nml')
+    fnames = [dir + 'accessom2.nml'] + glob.glob(dir + '*/*.nml')
+    # print(fnames)
+    # print(glob.glob(dir + '*/*.nml'))
+    parsed_items = dict()
+    for fname in fnames:
+        parsed_items[fname.split(dir)[1]] = f90nml.read(fname)
+    # print(parsed_items)
+    return parsed_items
+
+
+# get jobname from config.yaml -- NB: we assume this is the same for all jobs
+with open('config.yaml', 'r') as infile:
+    jobname = yaml.load(infile)['jobname']
+
+# get data from all PBS job logs
 run_data = dict()
-for f in glob.glob('archive/pbs_logs/01deg_jra55_iaf.o*'):
+for f in glob.glob('archive/pbs_logs/' + jobname + '.o*') + glob.glob(jobname + '.o*'):
     jobid = int(f.split('.o')[1])
     run_data[jobid] = dict()
     run_data[jobid]['PBS log'] = parse_pbs_log(f)
     run_data[jobid]['PBS log']['PBS log file'] = f
 
-# print(run_data)
-
+# get run data for all jobs
 for jobid in run_data:
     pbs = run_data[jobid]['PBS log']
     date = pbs['Run completion date']
     if date is not None:
         run_data[jobid]['git log'] = parse_git_log(date)  # BUG: assumes the time zones match
-        if pbs['Exit Status'] == 0:
+        if pbs['Exit Status'] == 0:  # output dir belongs to this job only if Exit Status = 0
             run_data[jobid]['MOM_time_stamp.out'] = \
                 parse_mom_time_stamp(pbs['Run number'])
+            run_data[jobid]['config.yaml'] = \
+                parse_config_yaml(pbs['Run number'])
+            run_data[jobid]['namelists'] = \
+                parse_nml(pbs['Run number'])
+            # run_data[jobid]['accessom2.nml'] = \
+            #     parse_accessom2_nml(pbs['Run number'])
+            # TODO: save a list of files changed since last job (git diff --name-only SHA1 SHA2)
+            # TODO: save a list of files changed since last successful run (git diff --name-only SHA1 SHA2)
+            # TODO: save a list of commit hashes since last job
+            # TODO: save a list of commit hashes since last successful run
 
 print(run_data)
+
+# run_data dict structure
+# 
+# run_data dict
+#    L___ job ID dict
+#           L___ 'PBS log' dict
+#           L___ 'git log' dict (absent if PBS date is None)
+#           L___ 'MOM_time_stamp.out' dict (absent if PBS exit status is not 0)
+#           L___ 'config.yaml' dict (absent if PBS exit status is not 0)
+#           L___ 'namelists' dict (absent if PBS exit status is not 0)
+#                   L___ 'accessom2.nml' namelist
+#                   L___ 'atmosphere/atm.nml' namelist
+#                   L___ '/ice/cice_in.nml' namelist
+#                   L___ 'ice/input_ice.nml' namelist
+#                   L___ 'ice/input_ice_gfdl.nml' namelist
+#                   L___ 'ice/input_ice_monin.nml' namelist
+#                   L___ 'ocean/input.nml' namelist
+#    L___ job ID dict
+#           L___ ... etc
+
+          
+
+# TODO: run_diff : git diff between 2 runs
+# TODO: job_diff : git diff between 2 jobs
 
 
 # # 
