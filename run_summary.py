@@ -8,6 +8,7 @@ Latest version: https://github.com/aekiss/run_summary
 Author: Andrew Kiss https://github.com/aekiss
 Apache 2.0 License http://www.apache.org/licenses/LICENSE-2.0.txt
 """
+import os
 import re
 import glob
 import subprocess
@@ -23,9 +24,28 @@ import yaml
 import f90nml  # from https://f90nml.readthedocs.io/en/latest/
 
 
+def get_sync_path(fname):
+    """
+    Return GDATADIR path from sync_output_to_gdata.sh.
+
+    fname: sync_output_to_gdata.sh file path
+
+    output: dict
+
+    """
+    with open(fname, 'r') as infile:
+        for line in infile:
+            #  NB: subsequent matches will replace earlier ones
+            try:
+                dir = line.split('GDATADIR=')[1].strip()
+            except:
+                continue
+    return dir
+
+
 def parse_pbs_log(fname):
     """
-    Returns dict of items from parsed PBS log file.
+    Return dict of items from parsed PBS log file.
 
     fname: PBS log file path
 
@@ -118,7 +138,7 @@ def parse_pbs_log(fname):
 
 def parse_git_log(datestr):
     """
-    Returns dict of items from git log on given date.
+    Return dict of items from git log on given date.
 
     datestr: date string
 
@@ -141,7 +161,7 @@ def parse_git_log(datestr):
     return parsed_items
 
 
-def parse_mom_time_stamp(run):
+def parse_mom_time_stamp(path, run):
     """
     Returns dict of items from parsed MOM time_stamp.out.
 
@@ -157,7 +177,7 @@ def parse_mom_time_stamp(run):
     parsed_items = {'Model start time': None,
                     'Model end time': None,
                     'Time stamp file': None}
-    fname = 'archive/output' + str(run).zfill(3) + '/ocean/time_stamp.out'
+    fname = path + '/output' + str(run).zfill(3) + '/ocean/time_stamp.out'
     parsed_items['Time stamp file'] = fname
     with open(fname, 'r') as infile:
         line = infile.readline()
@@ -169,7 +189,7 @@ def parse_mom_time_stamp(run):
     return parsed_items
 
 
-def parse_config_yaml(run):
+def parse_config_yaml(path, run):
     """
     Returns dict of items from parsed config.yaml.
 
@@ -178,13 +198,13 @@ def parse_config_yaml(run):
     output: dict
     """
     parsed_items = dict()
-    fname = 'archive/output' + str(run).zfill(3) + '/config.yaml'
+    fname = path + '/output' + str(run).zfill(3) + '/config.yaml'
     with open(fname, 'r') as infile:
         parsed_items = yaml.load(infile)
     return parsed_items
 
 
-def parse_nml(run):
+def parse_nml(path, run):
     """
     Returns dict of items from parsed namelists.
 
@@ -192,11 +212,29 @@ def parse_nml(run):
 
     output: dict
     """
-    dir = 'archive/output' + str(run).zfill(3) + '/'
+    dir = path + '/output' + str(run).zfill(3) + '/'
     fnames = [dir + 'accessom2.nml'] + glob.glob(dir + '*/*.nml')
     parsed_items = dict()
     for fname in fnames:
         parsed_items[fname.split(dir)[1]] = f90nml.read(fname)
+    return parsed_items
+
+
+def git_diff(sha1, sha2):
+    """
+    Return dict of git-tracked differences between two commits.
+
+    sha1, sha2: strings; sha1 should be earlier than or same as sha2
+    """
+    parsed_items = dict()
+    p = subprocess.Popen('git diff --name-only ' + sha1 + ' ' + sha2,
+                         stdout=subprocess.PIPE, shell=True)
+    parsed_items['Changed files'] = p.communicate()[0].decode('ascii').split()
+    p = subprocess.Popen('git log --pretty="%B\%x09" ' + sha1 + '..' + sha2,
+                         stdout=subprocess.PIPE, shell=True)
+    m = [s.strip('\n\\') for s in p.communicate()[0].decode('ascii').split('\t')][0:-1]
+    m.reverse()  # put in chronological order
+    parsed_items['Messages'] = m
     return parsed_items
 
 
@@ -219,6 +257,12 @@ def dictget(d, l):
 with open('config.yaml', 'r') as infile:
     jobname = yaml.load(infile)['jobname']
 
+sync_path = get_sync_path('sync_output_to_gdata.sh')
+p = subprocess.Popen('git rev-parse --abbrev-ref HEAD',
+                     stdout=subprocess.PIPE, shell=True)
+git_branch = p.communicate()[0].decode('ascii').strip()
+
+
 # get data from all PBS job logs
 run_data = dict()
 for f in glob.glob('archive/pbs_logs/' + jobname + '.o*') + glob.glob(jobname + '.o*'):
@@ -235,12 +279,24 @@ for jobid in run_data:
     if date is not None:
         run_data[jobid]['git log'] = parse_git_log(date)  # BUG: assumes the time zones match
         if pbs['Exit Status'] == 0:  # output dir belongs to this job only if Exit Status = 0
-            run_data[jobid]['MOM_time_stamp.out'] = \
-                parse_mom_time_stamp(pbs['Run number'])
-            run_data[jobid]['config.yaml'] = \
-                parse_config_yaml(pbs['Run number'])
-            run_data[jobid]['namelists'] = \
-                parse_nml(pbs['Run number'])
+            try:
+                run_data[jobid]['MOM_time_stamp.out'] = \
+                    parse_mom_time_stamp(sync_path, pbs['Run number'])
+            except:
+                run_data[jobid]['MOM_time_stamp.out'] = \
+                    parse_mom_time_stamp('archive', pbs['Run number'])
+            try:
+                run_data[jobid]['config.yaml'] = \
+                    parse_config_yaml(sync_path, pbs['Run number'])
+            except:
+                run_data[jobid]['config.yaml'] = \
+                    parse_config_yaml('archive', pbs['Run number'])
+            try:
+                run_data[jobid]['namelists'] = \
+                    parse_nml(sync_path, pbs['Run number'])
+            except:
+                run_data[jobid]['namelists'] = \
+                    parse_nml('archive', pbs['Run number'])
             # run_data[jobid]['accessom2.nml'] = \
             #     parse_accessom2_nml(pbs['Run number'])
             # TODO: save a list of files changed since last job (git diff --name-only SHA1 SHA2)
@@ -261,22 +317,28 @@ for jobid in all_run_data:
 
 # print(run_data)
 
-# sorted([v['PBS log']['Run number'] for v in run_data.values()])
-
 # keys into run_data sorted by run number
 sortedkeys = [k[0] for k in sorted([(k, v['PBS log']['Run number']) for (k, v) in run_data.items()], key=lambda t: t[1])]
 
+# include changes in all commits since previous run
+for i, jobnum in enumerate(sortedkeys):
+    run_data[jobnum]['git diff'] = \
+        git_diff(run_data[sortedkeys[max(i-1, 0)]]['git log']['Commit'],
+                 run_data[jobnum]['git log']['Commit'])
+
+
+
 # Specify the output format here.
-# output_format is a list of (key, value) tuples;
+# output_format is a list of (key, value) tuples, one for each column;
 # keys are headers (must be unique),
 # values are lists of keys into run_data
 output_format = OrderedDict([
     ('Run number', ['PBS log', 'Run number']),
     ('Job Id', ['PBS log', 'Job Id']),
-    ('Git hash', ['git log', 'Commit']),
     ('Run start', ['MOM_time_stamp.out', 'Model start time']),
     ('Run end', ['MOM_time_stamp.out', 'Model end time']),
     ('Run length (years, months, seconds)', ['namelists', 'accessom2.nml', 'date_manager_nml', 'restart_period']),
+    ('Run completion date', ['PBS log', 'Run completion date']),
     ('Queue', ['config.yaml', 'queue']),
     ('Service Units', ['PBS log', 'Service Units']),
     ('Walltime Used (s)', ['PBS log', 'Walltime Used']),
@@ -285,15 +347,21 @@ output_format = OrderedDict([
     ('ntdt', ['namelists', 'ice/cice_in.nml', 'setup_nml', 'ndtd']),
     ('distribution_type', ['namelists', 'ice/cice_in.nml', 'domain_nml', 'distribution_type']),
     ('ktherm', ['namelists', 'ice/cice_in.nml', 'thermo_nml', 'ktherm']),
+    ('Git hash', ['git log', 'Commit']),
+    ('Commit date', ['git log', 'Date']),
+    ('Git-tracked file changes since previous run', ['git diff', 'Changed files']),
+    ('Git log messages since previous run', ['git diff', 'Messages']),
     ])
 
 # output csv file according to output_format
 with open('run_summary.csv', 'w', newline='') as csvfile:
     csvw = csv.writer(csvfile, dialect='excel')
     csvw.writerow(['Summary report generated by run_summary.py'])
-    csvw.writerow([])
+    csvw.writerow(['report generated:', datetime.datetime.now().isoformat()])
+    csvw.writerow(['command directory path:', os.getcwd(), 'git branch:', git_branch])
+    csvw.writerow(['hh5 output path:', sync_path])
     csvw.writerow(output_format.keys())  # header
-    for jobnum in sortedkeys:  # TODO: sort by run number then jobnum
+    for jobnum in sortedkeys:
         csvw.writerow([dictget(run_data, [jobnum] + keylist) for keylist in output_format.values()])
 
 
