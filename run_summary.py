@@ -252,6 +252,7 @@ def dictget(d, l):
         return d[l[0]]
     return dictget(d[l[0]], l[1:])
 
+
 print('Reading run data', end='')
 
 # get jobname from config.yaml -- NB: we assume this is the same for all jobs
@@ -266,7 +267,8 @@ git_branch = p.communicate()[0].decode('ascii').strip()
 
 # get data from all PBS job logs
 run_data = dict()
-for f in glob.glob('archive/pbs_logs/' + jobname + '.o*') + glob.glob(jobname + '.o*'):
+for f in glob.glob('archive/pbs_logs/' + jobname + '.o*') \
+       + glob.glob(jobname + '.o*'):
     print('.', end='', flush=True)
     jobid = int(f.split('.o')[1])
     run_data[jobid] = dict()
@@ -300,12 +302,6 @@ for jobid in run_data:
             except:
                 run_data[jobid]['namelists'] = \
                     parse_nml('archive', pbs['Run number'])
-            # run_data[jobid]['accessom2.nml'] = \
-            #     parse_accessom2_nml(pbs['Run number'])
-            # TODO: save a list of files changed since last job (git diff --name-only SHA1 SHA2)
-            # TODO: save a list of files changed since last successful run (git diff --name-only SHA1 SHA2)
-            # TODO: save a list of commit hashes since last job
-            # TODO: save a list of commit hashes since last successful run
 
 all_run_data = copy.deepcopy(run_data)  # all_run_data includes failed jobs
 
@@ -319,8 +315,6 @@ for jobid in all_run_data:
     elif pbs['Exit Status'] != 0:  # output dir belongs to this job only if Exit Status = 0
         del run_data[jobid]
 
-# print(run_data)
-
 # keys into run_data sorted by run number
 sortedkeys = [k[0] for k in sorted([(k, v['PBS log']['Run number']) for (k, v) in run_data.items()], key=lambda t: t[1])]
 
@@ -332,22 +326,23 @@ for i, jobnum in enumerate(sortedkeys):
                  run_data[jobnum]['git log']['Commit'])
 
 
-
+###############################################################################
 # Specify the output format here.
+#
 # output_format is a list of (key, value) tuples, one for each column.
 # keys are headers (must be unique)
 # values are lists of keys into run_data (omitting job id)
 #
 # run_data dict structure:
-# 
+#
 # run_data dict
 #    L___ job ID dict
 #           L___ 'PBS log' dict
-#           L___ 'git log' dict (absent if PBS date is None)
-#           L___ 'git diff' dict (absent if PBS date is None)
-#           L___ 'MOM_time_stamp.out' dict (absent if PBS exit status is not 0)
-#           L___ 'config.yaml' dict (absent if PBS exit status is not 0)
-#           L___ 'namelists' dict (absent if PBS exit status is not 0)
+#           L___ 'git log' dict
+#           L___ 'git diff' dict
+#           L___ 'MOM_time_stamp.out' dict
+#           L___ 'config.yaml' dict
+#           L___ 'namelists' dict
 #                   L___ 'accessom2.nml' namelist
 #                   L___ 'atmosphere/atm.nml' namelist
 #                   L___ '/ice/cice_in.nml' namelist
@@ -383,6 +378,7 @@ output_format = OrderedDict([
     ('Git-tracked file changes since previous run', ['git diff', 'Changed files']),
     ('Git log messages since previous run', ['git diff', 'Messages']),
     ])
+###############################################################################
 
 # output csv file according to output_format
 outfile = 'run_summary.csv'
