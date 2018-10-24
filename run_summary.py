@@ -216,7 +216,10 @@ def parse_nml(path, run):
     fnames = [dir + 'accessom2.nml'] + glob.glob(dir + '*/*.nml')
     parsed_items = dict()
     for fname in fnames:
-        parsed_items[fname.split(dir)[1]] = f90nml.read(fname)
+        try:
+            parsed_items[fname.split(dir)[1]] = f90nml.read(fname)
+        except FileNotFoundError:  # no accessom2.nml in pre-YATM runs
+            parsed_items[fname.split(dir)[1]] = None
     return parsed_items
 
 
@@ -253,7 +256,7 @@ def dictget(d, l):
     return dictget(d[l[0]], l[1:])
 
 
-print('Reading run data', end='')
+print('Reading run data ', end='')
 
 # get jobname from config.yaml -- NB: we assume this is the same for all jobs
 with open('config.yaml', 'r') as infile:
@@ -315,6 +318,20 @@ for jobid in all_run_data:
     elif pbs['Exit Status'] != 0:  # output dir belongs to this job only if Exit Status = 0
         del run_data[jobid]
 
+# make a 'timing' entry to contain model timestep and run length for both MATM and YATM runs
+# run length is [years, months, days, seconds]
+for jobid in run_data:
+    timing = dict()
+    if run_data[jobid]['namelists']['accessom2.nml'] is None:  # non-YATM run
+        timing['Timestep'] = run_data[jobid]['config.yaml']['submodels'][1]['timestep']  # MOM timestep
+        rt = run_data[jobid]['config.yaml']['calendar']['runtime']
+        timing['Run length'] = [rt['years'], rt['months'], rt['days'], 0]  # insert 0 seconds
+    else:
+        timing['Timestep'] = run_data[jobid]['namelists']['accessom2.nml']['accessom2_nml']['ice_ocean_timestep']
+        rp = run_data[jobid]['namelists']['accessom2.nml']['date_manager_nml']['restart_period']
+        timing['Run length'] = rp[0:2] + [0] + [rp[2]]  # insert 0 days
+    run_data[jobid]['timing'] = timing
+
 # keys into run_data sorted by run number
 sortedkeys = [k[0] for k in sorted([(k, v['PBS log']['Run number']) for (k, v) in run_data.items()], key=lambda t: t[1])]
 
@@ -342,8 +359,9 @@ for i, jobnum in enumerate(sortedkeys):
 #           L___ 'git diff' dict
 #           L___ 'MOM_time_stamp.out' dict
 #           L___ 'config.yaml' dict
+#           L___ 'timing' dict
 #           L___ 'namelists' dict
-#                   L___ 'accessom2.nml' namelist
+#                   L___ 'accessom2.nml' namelist (or None if non-YATM run)
 #                   L___ 'atmosphere/atm.nml' namelist
 #                   L___ '/ice/cice_in.nml' namelist
 #                   L___ 'ice/input_ice.nml' namelist
@@ -357,7 +375,8 @@ output_format = OrderedDict([
     ('Job Id', ['PBS log', 'Job Id']),
     ('Run start', ['MOM_time_stamp.out', 'Model start time']),
     ('Run end', ['MOM_time_stamp.out', 'Model end time']),
-    ('Run length (years, months, seconds)', ['namelists', 'accessom2.nml', 'date_manager_nml', 'restart_period']),
+    # ('Run length (years, months, seconds)', ['namelists', 'accessom2.nml', 'date_manager_nml', 'restart_period']),
+    ('Run length (years, months, days, seconds)', ['timing', 'Run length']),
     ('Run completion date', ['PBS log', 'Run completion date']),
     ('Queue', ['config.yaml', 'queue']),
     ('Service Units', ['PBS log', 'Service Units']),
@@ -365,7 +384,8 @@ output_format = OrderedDict([
     ('NCPUs Used', ['PBS log', 'NCPUs Used']),
     ('MOM NCPUs', ['config.yaml', 'submodels', 1, 'ncpus']),
     ('CICE NCPUs', ['config.yaml', 'submodels', 2, 'ncpus']),
-    ('Timestep (s)', ['namelists', 'accessom2.nml', 'accessom2_nml', 'ice_ocean_timestep']),
+    # ('Timestep (s)', ['namelists', 'accessom2.nml', 'accessom2_nml', 'ice_ocean_timestep']),
+    ('Timestep (s)', ['timing', 'Timestep']),
     ('ntdt', ['namelists', 'ice/cice_in.nml', 'setup_nml', 'ndtd']),
     ('distribution_type', ['namelists', 'ice/cice_in.nml', 'domain_nml', 'distribution_type']),
     ('ktherm', ['namelists', 'ice/cice_in.nml', 'thermo_nml', 'ktherm']),
