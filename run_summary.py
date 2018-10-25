@@ -8,6 +8,7 @@ Latest version: https://github.com/aekiss/run_summary
 Author: Andrew Kiss https://github.com/aekiss
 Apache 2.0 License http://www.apache.org/licenses/LICENSE-2.0.txt
 """
+from __future__ import print_function
 import os
 import re
 import glob
@@ -17,11 +18,13 @@ from collections import OrderedDict
 import csv
 import copy
 
-# on NCI the folllowing may require
-# module use /g/data3/hh5/public/modules
-# module load conda/analysis3
-import yaml
-import f90nml  # from https://f90nml.readthedocs.io/en/latest/
+try:
+    import yaml
+    import f90nml  # from https://f90nml.readthedocs.io/en/latest/
+except ImportError:
+    print('\nFatal error: conda environment not set up?\nDo the following and try again:')
+    print('   module use /g/data3/hh5/public/modules; module load conda/analysis3\n')
+    raise
 
 
 def get_sync_path(fname):
@@ -38,7 +41,7 @@ def get_sync_path(fname):
             #  NB: subsequent matches will replace earlier ones
             try:
                 dir = line.split('GDATADIR=')[1].strip()
-            except:
+            except IndexError:  # 'GDATADIR=' not found
                 continue
     return dir
 
@@ -124,7 +127,7 @@ def parse_pbs_log(fname):
             for key, op in search_items.items():
                 try:
                     parsed_items[key] = op(line.split(key)[1].split())
-                except:
+                except IndexError:  # key not present in this line
                     continue
 
     # change to more self-explanatory keys
@@ -163,7 +166,7 @@ def parse_git_log(datestr):
 
 def parse_mom_time_stamp(path, run):
     """
-    Returns dict of items from parsed MOM time_stamp.out.
+    Return dict of items from parsed MOM time_stamp.out.
 
     run: run number
 
@@ -191,7 +194,7 @@ def parse_mom_time_stamp(path, run):
 
 def parse_config_yaml(path, run):
     """
-    Returns dict of items from parsed config.yaml.
+    Return dict of items from parsed config.yaml.
 
     run: run number
 
@@ -204,22 +207,25 @@ def parse_config_yaml(path, run):
     return parsed_items
 
 
-def parse_nml(path, run):
+def parse_nml(pathlist, run):
     """
-    Returns dict of items from parsed namelists.
+    Return dict of items from parsed namelists.
+
+    pathlist: list of base paths to parse for namelists, e.g. ['archive', sync_path]
 
     run: run number
 
     output: dict
     """
-    dir = path + '/output' + str(run).zfill(3) + '/'
-    fnames = [dir + 'accessom2.nml'] + glob.glob(dir + '*/*.nml')
     parsed_items = dict()
-    for fname in fnames:
-        try:
-            parsed_items[fname.split(dir)[1]] = f90nml.read(fname)
-        except FileNotFoundError:  # no accessom2.nml in pre-YATM runs
-            parsed_items[fname.split(dir)[1]] = None
+    parsed_items['accessom2.nml'] = None  # default value in case it doesn't exist (pre-YATM run)
+
+    for path in pathlist:
+        dir = path + '/output' + str(run).zfill(3) + '/'
+        fnames = [dir + 'accessom2.nml'] + glob.glob(dir + '*/*.nml')
+        for fname in fnames:
+            if os.path.isfile(fname):
+                parsed_items[fname.split(dir)[1]] = f90nml.read(fname)
     return parsed_items
 
 
@@ -299,12 +305,8 @@ for jobid in run_data:
             except:
                 run_data[jobid]['config.yaml'] = \
                     parse_config_yaml('archive', pbs['Run number'])
-            try:
-                run_data[jobid]['namelists'] = \
-                    parse_nml(sync_path, pbs['Run number'])
-            except:
-                run_data[jobid]['namelists'] = \
-                    parse_nml('archive', pbs['Run number'])
+            run_data[jobid]['namelists'] = \
+                parse_nml(['archive', sync_path], pbs['Run number'])
 
 all_run_data = copy.deepcopy(run_data)  # all_run_data includes failed jobs
 
@@ -362,7 +364,8 @@ for i, jobnum in enumerate(sortedkeys):
 #           L___ 'timing' dict
 #           L___ 'namelists' dict
 #                   L___ 'accessom2.nml' namelist (or None if non-YATM run)
-#                   L___ 'atmosphere/atm.nml' namelist
+#                   L___ 'atmosphere/atm.nml' namelist (only if YATM run)
+#                   L___ 'atmosphere/input_atm.nml' namelist (only if MATM run)
 #                   L___ '/ice/cice_in.nml' namelist
 #                   L___ 'ice/input_ice.nml' namelist
 #                   L___ 'ice/input_ice_gfdl.nml' namelist
@@ -400,7 +403,7 @@ output_format = OrderedDict([
     ])
 ###############################################################################
 
-# output csv file according to output_format
+# output csv file according to output_format above
 outfile = 'run_summary.csv'
 print('\nWriting', outfile)
 with open(outfile, 'w', newline='') as csvfile:
