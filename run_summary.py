@@ -22,7 +22,8 @@ try:
     import yaml
     import f90nml  # from https://f90nml.readthedocs.io/en/latest/
 except ImportError:
-    print('\nFatal error: conda environment not set up?\nDo the following and try again:')
+    print('\nFatal error: conda environment not set up?')
+    print('Do the following and try again:')
     print('   module use /g/data3/hh5/public/modules; module load conda/analysis3\n')
     raise
 
@@ -38,10 +39,10 @@ def get_sync_path(fname):
     """
     with open(fname, 'r') as infile:
         for line in infile:
-            #  NB: subsequent matches will replace earlier ones
+            # NB: subsequent matches will replace earlier ones
             try:
                 dir = line.split('GDATADIR=')[1].strip()
-            except IndexError:  # 'GDATADIR=' not found
+            except IndexError:  # 'GDATADIR=' not found - keep looking
                 continue
     return dir
 
@@ -164,68 +165,68 @@ def parse_git_log(datestr):
     return parsed_items
 
 
-def parse_mom_time_stamp(path, run):
+def parse_mom_time_stamp(paths):
     """
     Return dict of items from parsed MOM time_stamp.out.
 
-    run: run number
+    paths: list of base paths
 
-    output: dict
+    output: dict parsed from first matching time_stamp.out in paths
 
     example of MOM time_stamp.out content to parse:
         2001   9   1   0   0   0  Sep
         2001  11   1   0   0   0  Nov
 
     """
-    parsed_items = {'Model start time': None,
-                    'Model end time': None,
-                    'Time stamp file': None}
-    fname = path + '/output' + str(run).zfill(3) + '/ocean/time_stamp.out'
-    parsed_items['Time stamp file'] = fname
-    with open(fname, 'r') as infile:
-        line = infile.readline()
-        parsed_items['Model start time'] = datetime.datetime(
-            *list(map(int, line.split()[0:-1]))).isoformat()
-        line = infile.readline()
-        parsed_items['Model end time'] = datetime.datetime(
-            *list(map(int, line.split()[0:-1]))).isoformat()
+    parsed_items = dict()
+    for path in paths:
+        fname = os.path.join(path, 'ocean/time_stamp.out')
+        if os.path.isfile(fname):
+            parsed_items['Time stamp file'] = fname
+            with open(fname, 'r') as infile:
+                for key in ['Model start time', 'Model end time']:
+                    line = infile.readline()
+                    parsed_items[key] = datetime.datetime(
+                        *list(map(int, line.split()[0:-1]))).isoformat()
+            break
     return parsed_items
 
 
-def parse_config_yaml(path, run):
+def parse_config_yaml(paths):
     """
     Return dict of items from parsed config.yaml.
 
-    run: run number
+    paths: list of base paths
 
-    output: dict
+    output: dict parsed from first matching config.yaml in paths
     """
     parsed_items = dict()
-    fname = path + '/output' + str(run).zfill(3) + '/config.yaml'
-    with open(fname, 'r') as infile:
-        parsed_items = yaml.load(infile)
+    for path in paths:
+        fname = os.path.join(path, 'config.yaml')
+        if os.path.isfile(fname):
+            with open(fname, 'r') as infile:
+                parsed_items = yaml.load(infile)
+            break
     return parsed_items
 
 
-def parse_nml(pathlist, run):
+def parse_nml(paths):
     """
     Return dict of items from parsed namelists.
 
-    pathlist: list of base paths to parse for namelists, e.g. ['archive', sync_path]
-
-    run: run number
+    paths: list of base paths to parse for namelists
 
     output: dict
     """
     parsed_items = dict()
-    parsed_items['accessom2.nml'] = None  # default value in case it doesn't exist (pre-YATM run)
-
-    for path in pathlist:
-        dir = path + '/output' + str(run).zfill(3) + '/'
-        fnames = [dir + 'accessom2.nml'] + glob.glob(dir + '*/*.nml')
+    parsed_items['accessom2.nml'] = None  # default value for non-YATM run
+    for path in paths:
+        fnames = [os.path.join(path, 'accessom2.nml')]\
+                + glob.glob(os.path.join(path, '*/*.nml'))
         for fname in fnames:
-            if os.path.isfile(fname):
-                parsed_items[fname.split(dir)[1]] = f90nml.read(fname)
+            if os.path.isfile(fname):  # no accessom2.nml for non-YATM run
+                parsed_items[fname.split(path)[1].strip('/')] \
+                        = f90nml.read(fname)
     return parsed_items
 
 
@@ -283,7 +284,6 @@ for f in glob.glob('archive/pbs_logs/' + jobname + '.o*') \
     run_data[jobid] = dict()
     run_data[jobid]['PBS log'] = parse_pbs_log(f)
     run_data[jobid]['PBS log']['PBS log file'] = f
-    # break
 
 # get run data for all jobs
 for jobid in run_data:
@@ -293,20 +293,12 @@ for jobid in run_data:
     if date is not None:
         run_data[jobid]['git log'] = parse_git_log(date)  # BUG: assumes the time zones match
         if pbs['Exit Status'] == 0:  # output dir belongs to this job only if Exit Status = 0
-            try:
-                run_data[jobid]['MOM_time_stamp.out'] = \
-                    parse_mom_time_stamp(sync_path, pbs['Run number'])
-            except:
-                run_data[jobid]['MOM_time_stamp.out'] = \
-                    parse_mom_time_stamp('archive', pbs['Run number'])
-            try:
-                run_data[jobid]['config.yaml'] = \
-                    parse_config_yaml(sync_path, pbs['Run number'])
-            except:
-                run_data[jobid]['config.yaml'] = \
-                    parse_config_yaml('archive', pbs['Run number'])
-            run_data[jobid]['namelists'] = \
-                parse_nml(['archive', sync_path], pbs['Run number'])
+            outdir = 'output' + str(pbs['Run number']).zfill(3)
+            paths = [os.path.join(sync_path, outdir),
+                     os.path.join('archive', outdir)]
+            run_data[jobid]['MOM_time_stamp.out'] = parse_mom_time_stamp(paths)
+            run_data[jobid]['config.yaml'] = parse_config_yaml(paths)
+            run_data[jobid]['namelists'] = parse_nml(paths)
 
 all_run_data = copy.deepcopy(run_data)  # all_run_data includes failed jobs
 
@@ -334,7 +326,7 @@ for jobid in run_data:
         timing['Run length'] = rp[0:2] + [0] + [rp[2]]  # insert 0 days
     run_data[jobid]['timing'] = timing
 
-# keys into run_data sorted by run number
+# jobnum keys into run_data sorted by run number
 sortedkeys = [k[0] for k in sorted([(k, v['PBS log']['Run number']) for (k, v) in run_data.items()], key=lambda t: t[1])]
 
 # include changes in all commits since previous run
