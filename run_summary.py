@@ -21,7 +21,7 @@ try:
     import yaml
     import f90nml  # from https://f90nml.readthedocs.io/en/latest/
 except ImportError:
-    print('\nFatal error: conda environment not set up?')
+    print('\nFatal error: NCI conda environment not set up?')
     print('Do the following and try again:')
     print('   module use /g/data3/hh5/public/modules; module load conda/analysis3\n')
     raise
@@ -154,7 +154,7 @@ def parse_git_log(basepath, datestr):
     # pretty format is tab-delimited (%x09)
     p = subprocess.Popen('cd ' + basepath
                          + ' && git log -1 '
-                         + '--pretty="format:%H%x09%an%x09%aI%x09%B" '
+                         + '--pretty="format:%H%x09%an%x09%ai%x09%B" '
                          + '`git rev-list -1 --date=local --before="'
                          + datestr + '" HEAD`',
                          stdout=subprocess.PIPE, shell=True)
