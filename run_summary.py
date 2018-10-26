@@ -2,7 +2,6 @@
 """
 
 Tools to summarise access-om2 runs.
-Should be run from an ACCESS-OM2 control directory.
 
 Latest version: https://github.com/aekiss/run_summary
 Author: Andrew Kiss https://github.com/aekiss
@@ -140,9 +139,11 @@ def parse_pbs_log(fname):
     return parsed_items
 
 
-def parse_git_log(datestr):
+def parse_git_log(basepath, datestr):
     """
     Return dict of items from git log on given date.
+
+    basepath: base directory path string
 
     datestr: date string
 
@@ -151,7 +152,9 @@ def parse_git_log(datestr):
     # possible BUG: what time zone flag should be use? local is problematic if run from overseas....?
     # use Popen for backwards-compatiblity with Python <2.7
     # pretty format is tab-delimited (%x09)
-    p = subprocess.Popen('git log -1 --pretty="format:%H%x09%an%x09%aI%x09%B" '
+    p = subprocess.Popen('cd ' + basepath
+                         + ' && git log -1 '
+                         + '--pretty="format:%H%x09%an%x09%aI%x09%B" '
                          + '`git rev-list -1 --date=local --before="'
                          + datestr + '" HEAD`',
                          stdout=subprocess.PIPE, shell=True)
@@ -230,17 +233,21 @@ def parse_nml(paths):
     return parsed_items
 
 
-def git_diff(sha1, sha2):
+def git_diff(basepath, sha1, sha2):
     """
     Return dict of git-tracked differences between two commits.
+
+    basepath: base directory path string
 
     sha1, sha2: strings; sha1 should be earlier than or same as sha2
     """
     parsed_items = dict()
-    p = subprocess.Popen('git diff --name-only ' + sha1 + ' ' + sha2,
+    p = subprocess.Popen('cd ' + basepath
+                         + ' && git diff --name-only ' + sha1 + ' ' + sha2,
                          stdout=subprocess.PIPE, shell=True)
     parsed_items['Changed files'] = p.communicate()[0].decode('ascii').split()
-    p = subprocess.Popen('git log --pretty="%B\%x09" ' + sha1 + '..' + sha2,
+    p = subprocess.Popen('cd ' + basepath
+                         + ' && git log --pretty="%B\%x09" ' + sha1 + '..' + sha2,
                          stdout=subprocess.PIPE, shell=True)
     m = [s.strip('\n\\') for s in p.communicate()[0].decode('ascii').split('\t')][0:-1]
     m.reverse()  # put in chronological order
@@ -263,152 +270,179 @@ def dictget(d, l):
     return dictget(d[l[0]], l[1:])
 
 
-print('Reading run data ', end='')
+def run_summary(basepath=os.getcwd(), outfile='run_summary.csv'):
+    '''
+    Generate run summary
+    '''
+    print('Reading run data ', end='')
 
-# get jobname from config.yaml -- NB: we assume this is the same for all jobs
-with open('config.yaml', 'r') as infile:
-    jobname = yaml.load(infile)['jobname']
+    # get jobname from config.yaml -- NB: we assume this is the same for all jobs
+    with open(os.path.join(basepath, 'config.yaml'), 'r') as infile:
+        jobname = yaml.load(infile)['jobname']
 
-sync_path = get_sync_path('sync_output_to_gdata.sh')
-p = subprocess.Popen('git rev-parse --abbrev-ref HEAD',
-                     stdout=subprocess.PIPE, shell=True)
-git_branch = p.communicate()[0].decode('ascii').strip()
+    sync_path = get_sync_path(os.path.join(basepath, 'sync_output_to_gdata.sh'))
+    p = subprocess.Popen('cd ' + basepath
+                         + ' && git rev-parse --abbrev-ref HEAD',
+                         stdout=subprocess.PIPE, shell=True)
+    git_branch = p.communicate()[0].decode('ascii').strip()
 
 
-# get data from all PBS job logs
-run_data = dict()
-for f in glob.glob('archive/pbs_logs/' + jobname + '.o*') \
-       + glob.glob(jobname + '.o*'):
-    print('.', end='', flush=True)
-    jobid = int(f.split('.o')[1])
-    run_data[jobid] = dict()
-    run_data[jobid]['PBS log'] = parse_pbs_log(f)
-    run_data[jobid]['PBS log']['PBS log file'] = f
+    # get data from all PBS job logs
+    run_data = dict()
+    for f in glob.glob(os.path.join(basepath, 'archive/pbs_logs/', jobname + '.o*')) \
+           + glob.glob(os.path.join(basepath, jobname + '.o*')):
+        print('.', end='', flush=True)
+        jobid = int(f.split('.o')[1])
+        run_data[jobid] = dict()
+        run_data[jobid]['PBS log'] = parse_pbs_log(f)
+        run_data[jobid]['PBS log']['PBS log file'] = f
 
-# get run data for all jobs
-for jobid in run_data:
-    print('.', end='', flush=True)
-    pbs = run_data[jobid]['PBS log']
-    date = pbs['Run completion date']
-    if date is not None:
-        run_data[jobid]['git log'] = parse_git_log(date)  # BUG: assumes the time zones match
-        if pbs['Exit Status'] == 0:  # output dir belongs to this job only if Exit Status = 0
-            outdir = 'output' + str(pbs['Run number']).zfill(3)
-            paths = [os.path.join(sync_path, outdir),
-                     os.path.join('archive', outdir)]
-            run_data[jobid]['MOM_time_stamp.out'] = parse_mom_time_stamp(paths)
-            run_data[jobid]['config.yaml'] = parse_config_yaml(paths)
-            run_data[jobid]['namelists'] = parse_nml(paths)
+    # get run data for all jobs
+    for jobid in run_data:
+        print('.', end='', flush=True)
+        pbs = run_data[jobid]['PBS log']
+        date = pbs['Run completion date']
+        if date is not None:
+            run_data[jobid]['git log'] = parse_git_log(basepath, date)  # BUG: assumes the time zones match
+            if pbs['Exit Status'] == 0:  # output dir belongs to this job only if Exit Status = 0
+            # BUG: sometimes we get Exit Status = 0 but failed run, giving duplicated run number
+            # e.g. duplicated run 28 in /short/v45/aek156/access-om2/control/01deg_jra55_ryf
+                outdir = 'output' + str(pbs['Run number']).zfill(3)
+                paths = [os.path.join(sync_path, outdir),
+                         os.path.join(basepath, 'archive', outdir)]
+                run_data[jobid]['MOM_time_stamp.out'] = parse_mom_time_stamp(paths)
+                run_data[jobid]['config.yaml'] = parse_config_yaml(paths)
+                run_data[jobid]['namelists'] = parse_nml(paths)
 
-all_run_data = copy.deepcopy(run_data)  # all_run_data includes failed jobs
+    all_run_data = copy.deepcopy(run_data)  # all_run_data includes failed jobs
 
-# remove failed jobs from run_data
-for jobid in all_run_data:
-    print('.', end='', flush=True)
-    pbs = all_run_data[jobid]['PBS log']
-    date = pbs['Run completion date']
-    if date is None:
-        del run_data[jobid]
-    elif pbs['Exit Status'] != 0:  # output dir belongs to this job only if Exit Status = 0
-        del run_data[jobid]
+    # remove failed jobs from run_data
+    for jobid in all_run_data:
+        print('.', end='', flush=True)
+        pbs = all_run_data[jobid]['PBS log']
+        date = pbs['Run completion date']
+        if date is None:
+            del run_data[jobid]
+        elif pbs['Exit Status'] != 0:  # output dir belongs to this job only if Exit Status = 0
+            del run_data[jobid]
 
-# make a 'timing' entry to contain model timestep and run length for both MATM and YATM runs
-# run length is [years, months, days, seconds]
-for jobid in run_data:
-    timing = dict()
-    if run_data[jobid]['namelists']['accessom2.nml'] is None:  # non-YATM run
-        timing['Timestep'] = run_data[jobid]['config.yaml']['submodels'][1]['timestep']  # MOM timestep
-        rt = run_data[jobid]['config.yaml']['calendar']['runtime']
-        timing['Run length'] = [rt['years'], rt['months'], rt['days'], 0]  # insert 0 seconds
+    # make a 'timing' entry to contain model timestep and run length for both MATM and YATM runs
+    # run length is [years, months, days, seconds]
+    for jobid in run_data:
+        timing = dict()
+        if run_data[jobid]['namelists']['accessom2.nml'] is None:  # non-YATM run
+            timing['Timestep'] = run_data[jobid]['config.yaml']['submodels'][1]['timestep']  # MOM timestep
+            rt = run_data[jobid]['config.yaml']['calendar']['runtime']
+            timing['Run length'] = [rt['years'], rt['months'], rt['days'], 0]  # insert 0 seconds
+        else:
+            timing['Timestep'] = run_data[jobid]['namelists']['accessom2.nml']['accessom2_nml']['ice_ocean_timestep']
+            rp = run_data[jobid]['namelists']['accessom2.nml']['date_manager_nml']['restart_period']
+            timing['Run length'] = rp[0:2] + [0] + [rp[2]]  # insert 0 days
+        run_data[jobid]['timing'] = timing
+
+    # jobnum keys into run_data sorted by run number
+    sortedkeys = [k[0] for k in sorted([(k, v['PBS log']['Run number']) for (k, v) in run_data.items()], key=lambda t: t[1])]
+
+    # include changes in all commits since previous run
+    for i, jobnum in enumerate(sortedkeys):
+        print('.', end='', flush=True)
+        run_data[jobnum]['git diff'] = \
+            git_diff(basepath,
+                     run_data[sortedkeys[max(i-1, 0)]]['git log']['Commit'],
+                     run_data[jobnum]['git log']['Commit'])
+
+    ###########################################################################
+    # Specify the output format here.
+    ###########################################################################
+    # output_format is a list of (key, value) tuples, one for each column.
+    # keys are headers (must be unique)
+    # values are lists of keys into run_data (omitting job id)
+    #
+    # run_data dict structure:
+    #
+    # run_data dict
+    #    L___ job ID dict
+    #           L___ 'PBS log' dict
+    #           L___ 'git log' dict
+    #           L___ 'git diff' dict
+    #           L___ 'MOM_time_stamp.out' dict
+    #           L___ 'config.yaml' dict
+    #           L___ 'timing' dict
+    #           L___ 'namelists' dict
+    #                   L___ 'accessom2.nml' namelist (or None if non-YATM run)
+    #                   L___ 'atmosphere/atm.nml' namelist (only if YATM run)
+    #                   L___ 'atmosphere/input_atm.nml' namelist (only if MATM run)
+    #                   L___ '/ice/cice_in.nml' namelist
+    #                   L___ 'ice/input_ice.nml' namelist
+    #                   L___ 'ice/input_ice_gfdl.nml' namelist
+    #                   L___ 'ice/input_ice_monin.nml' namelist
+    #                   L___ 'ocean/input.nml' namelist
+    #    L___ job ID dict
+    #           L___ ... etc
+    output_format = OrderedDict([
+        ('Run number', ['PBS log', 'Run number']),
+        ('Run start', ['MOM_time_stamp.out', 'Model start time']),
+        ('Run end', ['MOM_time_stamp.out', 'Model end time']),
+        ('Run length (years, months, days, seconds)', ['timing', 'Run length']),
+        ('Job Id', ['PBS log', 'Job Id']),
+        ('Run completion date', ['PBS log', 'Run completion date']),
+        ('Queue', ['config.yaml', 'queue']),
+        ('Service Units', ['PBS log', 'Service Units']),
+        ('Walltime Used (s)', ['PBS log', 'Walltime Used']),
+        ('NCPUs Used', ['PBS log', 'NCPUs Used']),
+        ('MOM NCPUs', ['config.yaml', 'submodels', 1, 'ncpus']),
+        ('CICE NCPUs', ['config.yaml', 'submodels', 2, 'ncpus']),
+        ('Timestep (s)', ['timing', 'Timestep']),
+        ('ntdt', ['namelists', 'ice/cice_in.nml', 'setup_nml', 'ndtd']),
+        ('distribution_type', ['namelists', 'ice/cice_in.nml', 'domain_nml', 'distribution_type']),
+        ('ktherm', ['namelists', 'ice/cice_in.nml', 'thermo_nml', 'ktherm']),
+        ('Atmosphere executable', ['config.yaml', 'submodels', 0, 'exe']),
+        ('MOM executable', ['config.yaml', 'submodels', 1, 'exe']),
+        ('CICE executable', ['config.yaml', 'submodels', 2, 'exe']),
+        ('CICE NCPUs', ['config.yaml', 'submodels', 2, 'ncpus']),
+        ('Git hash', ['git log', 'Commit']),
+        ('Commit date', ['git log', 'Date']),
+        ('Git-tracked file changes since previous run', ['git diff', 'Changed files']),
+        ('Git log messages since previous run', ['git diff', 'Messages']),
+        ])
+    ###########################################################################
+
+    # output csv file according to output_format above
+    print('\nWriting', outfile)
+    with open(outfile, 'w', newline='') as csvfile:
+        csvw = csv.writer(csvfile, dialect='excel')
+        csvw.writerow(['Summary report generated by run_summary.py'])
+        csvw.writerow(['report generated:', datetime.datetime.now().isoformat()])
+        csvw.writerow(['command directory path:', os.getcwd(), 'git branch:', git_branch])
+        csvw.writerow(['hh5 output path:', sync_path])
+        csvw.writerow(output_format.keys())  # header
+        for jobnum in sortedkeys:
+            csvw.writerow([dictget(run_data, [jobnum] + keylist) for keylist in output_format.values()])
+    print('Done.')
+
+if __name__ == '__main__':
+    import argparse
+    parser = argparse.ArgumentParser(description=
+        'Summarise ACCESS-OM2 runs.\
+        Latest version and help: https://github.com/aekiss/run_summary')
+    parser.add_argument('-o', '--outfile', type=str,
+                        metavar='file', default='run_summary.csv',
+                        help="output file path; default is 'run_summary.csv';\
+                        WARNING: will be overwritten")
+    parser.add_argument('path', metavar='path', type=str, nargs='?',
+                        help='ACCESS-OM2 control directory path; default is current working directory')
+    args = parser.parse_args()
+    outfile = vars(args)['outfile']
+    basepath = vars(args)['path']
+    if outfile is None:
+        if basepath is None:
+            run_summary()
+        else:
+            run_summary(basepath=basepath)
     else:
-        timing['Timestep'] = run_data[jobid]['namelists']['accessom2.nml']['accessom2_nml']['ice_ocean_timestep']
-        rp = run_data[jobid]['namelists']['accessom2.nml']['date_manager_nml']['restart_period']
-        timing['Run length'] = rp[0:2] + [0] + [rp[2]]  # insert 0 days
-    run_data[jobid]['timing'] = timing
-
-# jobnum keys into run_data sorted by run number
-sortedkeys = [k[0] for k in sorted([(k, v['PBS log']['Run number']) for (k, v) in run_data.items()], key=lambda t: t[1])]
-
-# include changes in all commits since previous run
-for i, jobnum in enumerate(sortedkeys):
-    print('.', end='', flush=True)
-    run_data[jobnum]['git diff'] = \
-        git_diff(run_data[sortedkeys[max(i-1, 0)]]['git log']['Commit'],
-                 run_data[jobnum]['git log']['Commit'])
-
-
-###############################################################################
-# Specify the output format here.
-#
-# output_format is a list of (key, value) tuples, one for each column.
-# keys are headers (must be unique)
-# values are lists of keys into run_data (omitting job id)
-#
-# run_data dict structure:
-#
-# run_data dict
-#    L___ job ID dict
-#           L___ 'PBS log' dict
-#           L___ 'git log' dict
-#           L___ 'git diff' dict
-#           L___ 'MOM_time_stamp.out' dict
-#           L___ 'config.yaml' dict
-#           L___ 'timing' dict
-#           L___ 'namelists' dict
-#                   L___ 'accessom2.nml' namelist (or None if non-YATM run)
-#                   L___ 'atmosphere/atm.nml' namelist (only if YATM run)
-#                   L___ 'atmosphere/input_atm.nml' namelist (only if MATM run)
-#                   L___ '/ice/cice_in.nml' namelist
-#                   L___ 'ice/input_ice.nml' namelist
-#                   L___ 'ice/input_ice_gfdl.nml' namelist
-#                   L___ 'ice/input_ice_monin.nml' namelist
-#                   L___ 'ocean/input.nml' namelist
-#    L___ job ID dict
-#           L___ ... etc
-output_format = OrderedDict([
-    ('Run number', ['PBS log', 'Run number']),
-    ('Job Id', ['PBS log', 'Job Id']),
-    ('Run start', ['MOM_time_stamp.out', 'Model start time']),
-    ('Run end', ['MOM_time_stamp.out', 'Model end time']),
-    # ('Run length (years, months, seconds)', ['namelists', 'accessom2.nml', 'date_manager_nml', 'restart_period']),
-    ('Run length (years, months, days, seconds)', ['timing', 'Run length']),
-    ('Run completion date', ['PBS log', 'Run completion date']),
-    ('Queue', ['config.yaml', 'queue']),
-    ('Service Units', ['PBS log', 'Service Units']),
-    ('Walltime Used (s)', ['PBS log', 'Walltime Used']),
-    ('NCPUs Used', ['PBS log', 'NCPUs Used']),
-    ('MOM NCPUs', ['config.yaml', 'submodels', 1, 'ncpus']),
-    ('CICE NCPUs', ['config.yaml', 'submodels', 2, 'ncpus']),
-    # ('Timestep (s)', ['namelists', 'accessom2.nml', 'accessom2_nml', 'ice_ocean_timestep']),
-    ('Timestep (s)', ['timing', 'Timestep']),
-    ('ntdt', ['namelists', 'ice/cice_in.nml', 'setup_nml', 'ndtd']),
-    ('distribution_type', ['namelists', 'ice/cice_in.nml', 'domain_nml', 'distribution_type']),
-    ('ktherm', ['namelists', 'ice/cice_in.nml', 'thermo_nml', 'ktherm']),
-    ('Atmosphere executable', ['config.yaml', 'submodels', 0, 'exe']),
-    ('MOM executable', ['config.yaml', 'submodels', 1, 'exe']),
-    ('CICE executable', ['config.yaml', 'submodels', 2, 'exe']),
-    ('CICE NCPUs', ['config.yaml', 'submodels', 2, 'ncpus']),
-    ('Git hash', ['git log', 'Commit']),
-    ('Commit date', ['git log', 'Date']),
-    ('Git-tracked file changes since previous run', ['git diff', 'Changed files']),
-    ('Git log messages since previous run', ['git diff', 'Messages']),
-    ])
-###############################################################################
-
-# output csv file according to output_format above
-outfile = 'run_summary.csv'
-print('\nWriting', outfile)
-with open(outfile, 'w', newline='') as csvfile:
-    csvw = csv.writer(csvfile, dialect='excel')
-    csvw.writerow(['Summary report generated by run_summary.py'])
-    csvw.writerow(['report generated:', datetime.datetime.now().isoformat()])
-    csvw.writerow(['command directory path:', os.getcwd(), 'git branch:', git_branch])
-    csvw.writerow(['hh5 output path:', sync_path])
-    csvw.writerow(output_format.keys())  # header
-    for jobnum in sortedkeys:
-        csvw.writerow([dictget(run_data, [jobnum] + keylist) for keylist in output_format.values()])
-print('Done.')
-
+        if basepath is None:
+            run_summary(outfile=outfile)
+        else:
+            run_summary(basepath=basepath, outfile=outfile)
 
 # TODO: run_diff : git diff between 2 runs
-# TODO: job_diff : git diff between 2 jobs
