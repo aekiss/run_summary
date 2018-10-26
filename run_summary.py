@@ -8,8 +8,17 @@ Author: Andrew Kiss https://github.com/aekiss
 Apache 2.0 License http://www.apache.org/licenses/LICENSE-2.0.txt
 """
 from __future__ import print_function
+import sys
+try:
+    assert sys.version_info >= (3, 3)  # need python >= 3.3 for print flush keyword
+except AssertionError:
+    print('\nFatal error: Python version too old.')
+    print('On NCI, do the following and try again:')
+    print('   module use /g/data3/hh5/public/modules; module load conda/analysis3\n')
+    raise
+
 import os
-import re
+import re  # BUG: doesn't work if payu module loaded
 import glob
 import subprocess
 import datetime
@@ -20,9 +29,9 @@ import copy
 try:
     import yaml
     import f90nml  # from https://f90nml.readthedocs.io/en/latest/
-except ImportError:
-    print('\nFatal error: NCI conda environment not set up?')
-    print('Do the following and try again:')
+except ImportError:  # BUG: don't get this exception if payu module loaded, even if on python 2.6.6
+    print('\nFatal error: modules not available.')
+    print('On NCI, do the following and try again:')
     print('   module use /g/data3/hh5/public/modules; module load conda/analysis3\n')
     raise
 
@@ -305,8 +314,6 @@ def run_summary(basepath=os.getcwd(), outfile='run_summary.csv'):
         if date is not None:
             run_data[jobid]['git log'] = parse_git_log(basepath, date)  # BUG: assumes the time zones match
             if pbs['Exit Status'] == 0:  # output dir belongs to this job only if Exit Status = 0
-            # BUG: sometimes we get Exit Status = 0 but failed run, giving duplicated run number
-            # e.g. duplicated run 28 in /short/v45/aek156/access-om2/control/01deg_jra55_ryf
                 outdir = 'output' + str(pbs['Run number']).zfill(3)
                 paths = [os.path.join(sync_path, outdir),
                          os.path.join(basepath, 'archive', outdir)]
@@ -326,8 +333,34 @@ def run_summary(basepath=os.getcwd(), outfile='run_summary.csv'):
         elif pbs['Exit Status'] != 0:  # output dir belongs to this job only if Exit Status = 0
             del run_data[jobid]
 
+    # (jobid, run number) tuples sorted by run number - re-done below
+    jobid_run_tuples = sorted([(k, v['PBS log']['Run number'])
+                               for (k, v) in run_data.items()],
+                              key=lambda t: t[1])
+
+# Remove the older jobid if run number is duplicated - assume run was re-done
+# (check by date rather than jobid, since jobid sometimes rolls over)
+    prev_jobid_run = jobid_run_tuples[0]
+    for jobid_run in jobid_run_tuples[1:]:
+        if jobid_run[1] == prev_jobid_run[1]:  # duplicated run number
+            if run_data[jobid_run[0]]['PBS log']['Run completion date']\
+                > run_data[prev_jobid_run[0]]['PBS log']['Run completion date']:
+                del run_data[prev_jobid_run[0]]
+                prev_jobid_run = jobid_run
+            else:
+                del run_data[jobid_run[0]]
+        else:
+            prev_jobid_run = jobid_run
+
+    # re-do (jobid, run number) tuples sorted by run number
+    jobid_run_tuples = sorted([(k, v['PBS log']['Run number'])
+                               for (k, v) in run_data.items()],
+                              key=lambda t: t[1])
+    # jobid keys into run_data sorted by run number
+    sortedjobids = [k[0] for k in jobid_run_tuples]
+
     # make a 'timing' entry to contain model timestep and run length for both MATM and YATM runs
-    # run length is [years, months, days, seconds]
+    # run length is [years, months, days, seconds] to accommodate both MATM and YATM
     for jobid in run_data:
         timing = dict()
         if run_data[jobid]['namelists']['accessom2.nml'] is None:  # non-YATM run
@@ -340,16 +373,13 @@ def run_summary(basepath=os.getcwd(), outfile='run_summary.csv'):
             timing['Run length'] = rp[0:2] + [0] + [rp[2]]  # insert 0 days
         run_data[jobid]['timing'] = timing
 
-    # jobnum keys into run_data sorted by run number
-    sortedkeys = [k[0] for k in sorted([(k, v['PBS log']['Run number']) for (k, v) in run_data.items()], key=lambda t: t[1])]
-
-    # include changes in all commits since previous run
-    for i, jobnum in enumerate(sortedkeys):
+    # include changes in all git commits since previous run
+    for i, jobid in enumerate(sortedjobids):
         print('.', end='', flush=True)
-        run_data[jobnum]['git diff'] = \
+        run_data[jobid]['git diff'] = \
             git_diff(basepath,
-                     run_data[sortedkeys[max(i-1, 0)]]['git log']['Commit'],
-                     run_data[jobnum]['git log']['Commit'])
+                     run_data[sortedjobids[max(i-1, 0)]]['git log']['Commit'],
+                     run_data[jobid]['git log']['Commit'])
 
     ###########################################################################
     # Specify the output format here.
@@ -416,8 +446,8 @@ def run_summary(basepath=os.getcwd(), outfile='run_summary.csv'):
         csvw.writerow(['command directory path:', basepath, 'git branch:', git_branch])
         csvw.writerow(['hh5 output path:', sync_path])
         csvw.writerow(output_format.keys())  # header
-        for jobnum in sortedkeys:
-            csvw.writerow([dictget(run_data, [jobnum] + keylist) for keylist in output_format.values()])
+        for jobid in sortedjobids:
+            csvw.writerow([dictget(run_data, [jobid] + keylist) for keylist in output_format.values()])
     print('Done.')
 
 
