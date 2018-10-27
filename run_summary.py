@@ -18,8 +18,7 @@ except AssertionError:
     raise
 
 import os
-import re  # BUG: doesn't work if payu module loaded
-import glob
+import glob  # BUG: fails if payu module loaded - some sort of module clash with re
 import subprocess
 import datetime
 from collections import OrderedDict
@@ -103,14 +102,13 @@ def parse_pbs_log(fname):
 
     def getbytes(l):  # assumes PBS log info uses binary prefixes - TODO: check
         s = l[1]
-        m = re.match('((\.|\d)+)', s)
-        n = float(m.group(0))  # numerical part
+        ns = s.strip('BKMGT')  # numerical part
         units = {'B': 1,
                  'KB': 2**10,
                  'MB': 2**20,
                  'GB': 2**30,
                  'TB': 2**40}
-        return int(round(n*units[s[m.end(0):]]))
+        return int(round(float(ns)*units[s[len(ns):]]))
 
     search_items = {  # keys are strings to search for; items are functions to apply to whitespace-delimited list of strings following key
         'git commit': getrun,  # NB: run with this number might have failed - check Exit Status
