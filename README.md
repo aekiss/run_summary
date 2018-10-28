@@ -13,11 +13,11 @@ positional arguments:
 optional arguments:
   -h, --help            show this help message and exit
   -o file, --outfile file
-                        output file path; default is 'run_summary.csv';
+                        output file path; default is 'run_summary_<dir name on hh5>.csv'; 
                         WARNING: will be overwritten
 ```                        
                         
-- Requires python 3 and a reasonably recent version of git
+- Requires Python 3, [nmltab](https://github.com/aekiss/nmltab) and a reasonably recent version of git
 - On NCI you may need to do something like this:
 ```
 module load git  # NCI's git is newer than in /projects/v45/modules
