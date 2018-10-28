@@ -254,11 +254,12 @@ def git_diff(basepath, sha1, sha2):
                          stdout=subprocess.PIPE, shell=True)
     parsed_items['Changed files'] = p.communicate()[0].decode('ascii').split()
     p = subprocess.Popen('cd ' + basepath
-                         + ' && git log --pretty="%B\%x09" ' + sha1 + '..' + sha2,
+                         + ' && git log --ancestry-path --pretty="%B\%x09" '
+                         + sha1 + '..' + sha2,
                          stdout=subprocess.PIPE, shell=True)
     m = [s.strip('\n\\') for s in p.communicate()[0].decode('ascii').split('\t')][0:-1]
     m.reverse()  # put in chronological order
-    parsed_items['Messages'] = m
+    parsed_items['Messages'] = m  # NB: will be empty if there's a merge between the commits (ie if sha2 has additional ancestry paths besides the one with sha1)
     return parsed_items
 
 
@@ -277,7 +278,7 @@ def dictget(d, l):
     return dictget(d[l[0]], l[1:])
 
 
-def run_summary(basepath=os.getcwd(), outfile='run_summary.csv'):
+def run_summary(basepath=os.getcwd(), outfile=None):
     '''
     Generate run summary
     '''
@@ -288,6 +289,9 @@ def run_summary(basepath=os.getcwd(), outfile='run_summary.csv'):
         jobname = yaml.load(infile)['jobname']
 
     sync_path = get_sync_path(os.path.join(basepath, 'sync_output_to_gdata.sh'))
+    if outfile is None:
+        outfile = 'run_summary_' + os.path.split(sync_path)[1] + '.csv'
+
     p = subprocess.Popen('cd ' + basepath
                          + ' && git rev-parse --abbrev-ref HEAD',
                          stdout=subprocess.PIPE, shell=True)
@@ -308,9 +312,11 @@ def run_summary(basepath=os.getcwd(), outfile='run_summary.csv'):
     for jobid in run_data:
         print('.', end='', flush=True)
         pbs = run_data[jobid]['PBS log']
-        date = pbs['Run completion date']
+        date = pbs['Run completion date']  # BUG: would be better to have time when run began, including time zone
         if date is not None:
-            run_data[jobid]['git log'] = parse_git_log(basepath, date)  # BUG: assumes the time zones match
+            run_data[jobid]['git log'] = parse_git_log(basepath, date)
+            # BUG: assumes no commits between run start and end
+            # BUG: assumes the time zones match - no timezone specified in date - what does git assume? UTC?
             if pbs['Exit Status'] == 0:  # output dir belongs to this job only if Exit Status = 0
                 outdir = 'output' + str(pbs['Run number']).zfill(3)
                 paths = [os.path.join(sync_path, outdir),
@@ -455,8 +461,9 @@ if __name__ == '__main__':
         'Summarise ACCESS-OM2 runs.\
         Latest version and help: https://github.com/aekiss/run_summary')
     parser.add_argument('-o', '--outfile', type=str,
-                        metavar='file', default='run_summary.csv',
-                        help="output file path; default is 'run_summary.csv';\
+                        metavar='file',
+                        default=None,
+                        help="output file path; default is 'run_summary_<dir name on hh5>.csv';\
                         WARNING: will be overwritten")
     parser.add_argument('path', metavar='path', type=str, nargs='?',
                         help='ACCESS-OM2 control directory path; default is current working directory')
