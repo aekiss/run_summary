@@ -305,8 +305,10 @@ def run_summary(basepath=os.getcwd(), outfile=None):
 
     # get data from all PBS job logs
     run_data = dict()
-    for f in glob.glob(os.path.join(basepath, 'archive/pbs_logs/', jobname + '.o*')) \
-           + glob.glob(os.path.join(basepath, jobname + '.o*')):
+    for f in glob.glob(os.path.join(basepath, 'archive/pbs_logs', jobname + '.o*'))\
+           + glob.glob(os.path.join(basepath, jobname + '.o*'))\
+           + glob.glob(os.path.join(sync_path, 'pbs_logs', jobname + '.o*')):
+# NB: logs in archive may be duplicated in sync_path, in which case the latter is used
         print('.', end='', flush=True)
         jobid = int(f.split('.o')[1])
         run_data[jobid] = dict()
@@ -353,7 +355,7 @@ def run_summary(basepath=os.getcwd(), outfile=None):
     for jobid_run in jobid_run_tuples[1:]:
         if jobid_run[1] == prev_jobid_run[1]:  # duplicated run number
             if run_data[jobid_run[0]]['PBS log']['Run completion date']\
-                > run_data[prev_jobid_run[0]]['PBS log']['Run completion date']:
+             > run_data[prev_jobid_run[0]]['PBS log']['Run completion date']:
                 del run_data[prev_jobid_run[0]]
                 prev_jobid_run = jobid_run
             else:
@@ -450,7 +452,9 @@ def run_summary(basepath=os.getcwd(), outfile=None):
         output_format_nmls = OrderedDict()
         nmls_any_runs = set(run_data[list(run_data.keys())[0]]['namelists'].keys())
         nmls_all_runs = nmls_any_runs
-        nmls_no_runs = {k: True for k in nmls_any_runs}  # True for namelists that are None for all runs
+        # avoid dict comprehension here to avoid python<2.7 syntax error
+        nmls_no_runs = dict([(k, True) for k in nmls_any_runs])  # True for namelists that are None for all runs
+        # nmls_no_runs = {k: True for k in nmls_any_runs}  # True for namelists that are None for all runs
         for jobid in run_data:
             run_nmls = run_data[jobid]['namelists']
             nmls_any_runs = set(run_nmls.keys()) | nmls_any_runs
@@ -470,14 +474,18 @@ def run_summary(basepath=os.getcwd(), outfile=None):
 
         # add every changed group/variable in nml files that exist in all runs
         for nml in nmls_all_runs:
-            nmllistall = {jobid: copy.deepcopy(run_data[jobid]['namelists'][nml])
-                          for jobid in run_data}
+            # avoid dict comprehension here to avoid python<2.7 syntax error
+            nmllistall = dict([(jobid,
+                              copy.deepcopy(run_data[jobid]['namelists'][nml]))
+                              for jobid in run_data])
+            # nmllistall = {jobid: copy.deepcopy(run_data[jobid]['namelists'][nml])
+            #               for jobid in run_data}
             groups = nmltab.superset(nmltab.nmldiff(nmllistall))
             for group in groups:
                 for var in groups[group]:
                     ngv = [nml, group, var]
                     output_format_nmls.update(OrderedDict([
-                        (' '.join(ngv), ['namelists'] + ngv)]))
+                        (' -> '.join(ngv), ['namelists'] + ngv)]))
 
         # add all group/variables in nml files that exist in only some runs
         for nml in nmls_any_runs - nmls_all_runs:
@@ -492,7 +500,7 @@ def run_summary(basepath=os.getcwd(), outfile=None):
                 for var in groups[group]:
                     ngv = [nml, group, var]
                     output_format_nmls.update(OrderedDict([
-                        (' '.join(ngv), ['namelists'] + ngv)]))
+                        (' -> '.join(ngv), ['namelists'] + ngv)]))
 
         # alphabetize
         output_format_nmls = OrderedDict([(k, output_format_nmls[k])
