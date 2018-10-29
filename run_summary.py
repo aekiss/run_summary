@@ -287,7 +287,7 @@ def run_summary(basepath=os.getcwd(), outfile=None):
     '''
     Generate run summary
     '''
-    print('Reading run data ', end='')
+    print('Reading run data from ' + basepath, end='')
 
     # get jobname from config.yaml -- NB: we assume this is the same for all jobs
     with open(os.path.join(basepath, 'config.yaml'), 'r') as infile:
@@ -305,9 +305,11 @@ def run_summary(basepath=os.getcwd(), outfile=None):
 
     # get data from all PBS job logs
     run_data = dict()
-    for f in glob.glob(os.path.join(basepath, 'archive/pbs_logs', jobname + '.o*'))\
-           + glob.glob(os.path.join(basepath, jobname + '.o*'))\
-           + glob.glob(os.path.join(sync_path, 'pbs_logs', jobname + '.o*')):
+    # NB: match jobname[:15] because in some cases the pbs log files use a shortened version of the jobname in config.yaml
+    # e.g. see /home/157/amh157/payu/025deg_jra55_ryf8485
+    for f in glob.glob(os.path.join(basepath, 'archive/pbs_logs', jobname[:15] + '*.o*'))\
+           + glob.glob(os.path.join(basepath, jobname[:15] + '*.o*'))\
+           + glob.glob(os.path.join(sync_path, 'pbs_logs', jobname[:15] + '*.o*')):
 # NB: logs in archive may be duplicated in sync_path, in which case the latter is used
         print('.', end='', flush=True)
         jobid = int(f.split('.o')[1])
@@ -339,7 +341,9 @@ def run_summary(basepath=os.getcwd(), outfile=None):
         print('.', end='', flush=True)
         pbs = all_run_data[jobid]['PBS log']
         date = pbs['Run completion date']
-        if date is None:
+        if date is None:  # no PBS info in log file
+            del run_data[jobid]
+        elif pbs['Run number'] is None:  # not a model run log file
             del run_data[jobid]
         elif pbs['Exit Status'] != 0:  # output dir belongs to this job only if Exit Status = 0
             del run_data[jobid]
