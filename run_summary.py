@@ -48,7 +48,7 @@ def get_sync_path(fname):
         for line in infile:
             # NB: subsequent matches will replace earlier ones
             try:
-                dir = line.split('GDATADIR=')[1].strip()
+                dir = line.split('GDATADIR=')[1].strip().rstrip('/')
             except IndexError:  # 'GDATADIR=' not found - keep looking
                 continue
     return dir
@@ -348,6 +348,9 @@ def run_summary(basepath=os.getcwd(), outfile=None):
     jobid_run_tuples = sorted([(k, v['PBS log']['Run number'])
                                for (k, v) in run_data.items()],
                               key=lambda t: t[1])
+    if len(jobid_run_tuples) == 0:
+        print('\nAborting: no successful jobs?')
+        return
 
 # Remove the older jobid if run number is duplicated - assume run was re-done
 # (check by date rather than jobid, since jobid sometimes rolls over)
@@ -367,6 +370,10 @@ def run_summary(basepath=os.getcwd(), outfile=None):
     jobid_run_tuples = sorted([(k, v['PBS log']['Run number'])
                                for (k, v) in run_data.items()],
                               key=lambda t: t[1])
+    if len(jobid_run_tuples) == 0:
+        print('\nAborting: no successful jobs?')
+        return
+
     # jobid keys into run_data sorted by run number
     sortedjobids = [k[0] for k in jobid_run_tuples]
 
@@ -521,6 +528,7 @@ def run_summary(basepath=os.getcwd(), outfile=None):
         for jobid in sortedjobids:
             csvw.writerow([dictget(run_data, [jobid] + keylist) for keylist in output_format.values()])
     print('Done.')
+    return
 
 
 if __name__ == '__main__':
