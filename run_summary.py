@@ -252,14 +252,18 @@ def git_diff(basepath, sha1, sha2):
     p = subprocess.Popen('cd ' + basepath
                          + ' && git diff --name-only ' + sha1 + ' ' + sha2,
                          stdout=subprocess.PIPE, shell=True)
-    parsed_items['Changed files'] = p.communicate()[0].decode('ascii').split()
+    parsed_items['Changed files'] = ', '.join(
+        p.communicate()[0].decode('ascii').split())
     p = subprocess.Popen('cd ' + basepath
                          + ' && git log --ancestry-path --pretty="%B\%x09" '
                          + sha1 + '..' + sha2,
                          stdout=subprocess.PIPE, shell=True)
-    m = [s.strip('\n\\') for s in p.communicate()[0].decode('ascii').split('\t')][0:-1]
+    m = [s.strip('\n\\') 
+         for s in p.communicate()[0].decode('ascii').split('\t')][0:-1]
     m.reverse()  # put in chronological order
-    parsed_items['Messages'] = m  # NB: will be empty if there's no direct ancestry path from sha1 to sha2)
+    if len(m) == 0:
+        m = None
+    parsed_items['Messages'] = m  # NB: will be None if there's no direct ancestry path from sha1 to sha2)
     return parsed_items
 
 
@@ -268,11 +272,11 @@ def dictget(d, l):
     Lookup item in nested dict using a list of keys, or None if non-existent
 
     d: nested dict
-    l: list of keys
+    l: list of keys, or None
     """
     try:
         dl0 = d[l[0]]
-    except KeyError:
+    except (KeyError, TypeError):
         return None
     if len(l) == 1:
         return dl0
@@ -443,26 +447,7 @@ def run_summary(basepath=os.getcwd(), outfile=None):
     ###########################################################################
 
     if True:  # whether to output all namelist changes
-        # # find namelists present in any run
-        # TODO: use this
-        # nmls = dict()
-        # for jobid in run_data:
-        #     nmls.update(run_data[jobid]['namelists'])
         output_format_nmls = OrderedDict()
-        # find namelists present in all runs
-        # nmls_any_runs = None
-        # nmls_all_runs = None
-        # for jobid in run_data:
-        #     if nmls_any_runs is None:
-        #         nmls_any_runs = set(run_data[jobid]['namelists'].keys())
-        #     else:
-        #         nmls_any_runs = set(run_data[jobid]['namelists'].keys())\
-        #              | nmls_any_runs
-        #     if nmls_all_runs is None:
-        #         nmls_all_runs = set(run_data[jobid]['namelists'].keys())
-        #     else:
-        #         nmls_all_runs = set(run_data[jobid]['namelists'].keys())\
-        #              & nmls_all_runs
         nmls_any_runs = set(run_data[list(run_data.keys())[0]]['namelists'].keys())
         nmls_all_runs = nmls_any_runs
         nmls_no_runs = {k: True for k in nmls_any_runs}  # True for namelists that are None for all runs
@@ -483,13 +468,7 @@ def run_summary(basepath=os.getcwd(), outfile=None):
             if nmls_no_runs[nml]:
                 nmls_any_runs.remove(nml)
 
-        # print(nmls_any_runs)
-        # print(nmls_all_runs)
-
-    # TODO: use nmls_any_runs to look at all .nml files even if not present for all runs
-    # - if not present in all runs, need to output all groups and variables
-
-        # add all changed group/variables in nml files that exist in all runs
+        # add every changed group/variable in nml files that exist in all runs
         for nml in nmls_all_runs:
             nmllistall = {jobid: copy.deepcopy(run_data[jobid]['namelists'][nml])
                           for jobid in run_data}
@@ -500,20 +479,25 @@ def run_summary(basepath=os.getcwd(), outfile=None):
                     output_format_nmls.update(OrderedDict([
                         (' '.join(ngv), ['namelists'] + ngv)]))
 
-        # # add all group/variables in nml files that exist in only some runs
-        # for nml in nml_any_runs - nmls_all_runs:
-        #     nmllistall = {jobid: copy.deepcopy(run_data[jobid]['namelists'][nml])
-        #                   for jobid in run_data}
-        #     groups = nmltab.superset(nmltab.nmldiff(nmllistall))
-        #     for group in groups:
-        #         for var in groups[group]:
-        #             ngv = [nml, group, var]
-        #             output_format_nmls.update(OrderedDict([
-        #                 (' '.join(ngv), ['namelists'] + ngv)]))
+        # add all group/variables in nml files that exist in only some runs
+        for nml in nmls_any_runs - nmls_all_runs:
+            nmllistall = dict()
+            for jobid in run_data:
+                if nml in run_data[jobid]['namelists']:
+                    if run_data[jobid]['namelists'][nml] is not None:
+                        nmllistall.update({jobid:
+                              copy.deepcopy(run_data[jobid]['namelists'][nml])})
+            groups = nmltab.superset(nmllistall)
+            for group in groups:
+                for var in groups[group]:
+                    ngv = [nml, group, var]
+                    output_format_nmls.update(OrderedDict([
+                        (' '.join(ngv), ['namelists'] + ngv)]))
 
-    # TODO: also do something like the above with nml_any_runs - nml_all_runs
-    # TODO: alphabetize
-        # print(output_format_nmls)
+        # alphabetize
+        output_format_nmls = OrderedDict([(k, output_format_nmls[k])
+                                 for k in sorted(output_format_nmls.keys())])
+
         # add output_format entries for every namelist variable that has changed in any run
         output_format.update(output_format_nmls)
 
