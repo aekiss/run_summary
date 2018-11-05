@@ -381,6 +381,12 @@ def run_summary(basepath=os.getcwd(), outfile=None):
     # jobid keys into run_data sorted by run number
     sortedjobids = [k[0] for k in jobid_run_tuples]
 
+    # allow referencing by submodel name as well as list index
+    for jobid in run_data:
+        run_data[jobid]['config.yaml']['submodels-by-name'] = dict()
+        for sm in run_data[jobid]['config.yaml']['submodels']:
+            run_data[jobid]['config.yaml']['submodels-by-name'][sm['name']] = sm
+
     # make a 'timing' entry to contain model timestep and run length for both MATM and YATM runs
     # run length is [years, months, days, seconds] to accommodate both MATM and YATM
     for jobid in run_data:
@@ -442,17 +448,20 @@ def run_summary(basepath=os.getcwd(), outfile=None):
         ('Service Units', ['PBS log', 'Service Units']),
         ('Walltime Used (s)', ['PBS log', 'Walltime Used']),
         ('NCPUs Used', ['PBS log', 'NCPUs Used']),
-        ('MOM NCPUs', ['config.yaml', 'submodels', 1, 'ncpus']),
-        ('CICE NCPUs', ['config.yaml', 'submodels', 2, 'ncpus']),
+        ('MOM NCPUs', ['config.yaml', 'submodels-by-name', 'ocean', 'ncpus']),
+        ('CICE NCPUs', ['config.yaml', 'submodels-by-name', 'ice', 'ncpus']),
         ('Timestep (s)', ['timing', 'Timestep']),
         ('ntdt', ['namelists', 'ice/cice_in.nml', 'setup_nml', 'ndtd']),
         ('distribution_type', ['namelists', 'ice/cice_in.nml', 'domain_nml', 'distribution_type']),
         ('ktherm', ['namelists', 'ice/cice_in.nml', 'thermo_nml', 'ktherm']),
-        ('Atmosphere executable', ['config.yaml', 'submodels', 0, 'exe']),
-        ('MOM executable', ['config.yaml', 'submodels', 1, 'exe']),
-        ('CICE executable', ['config.yaml', 'submodels', 2, 'exe']),
-        ('CICE NCPUs', ['config.yaml', 'submodels', 2, 'ncpus']),
-        ('Git hash', ['git log', 'Commit']),
+        ('Common inputs', ['config.yaml', 'input']),
+        ('Atmosphere executable', ['config.yaml', 'submodels-by-name', 'atmosphere', 'exe']),
+        ('Atmosphere inputs', ['config.yaml', 'submodels-by-name', 'atmosphere', 'input']),
+        ('MOM executable', ['config.yaml', 'submodels-by-name', 'ocean', 'exe']),
+        ('MOM inputs', ['config.yaml', 'submodels-by-name', 'ocean', 'input']),
+        ('CICE executable', ['config.yaml', 'submodels-by-name', 'ice', 'exe']),
+        ('CICE inputs', ['config.yaml', 'submodels-by-name', 'ice', 'input']),
+        ('Git hash of run', ['git log', 'Commit']),
         ('Commit date', ['git log', 'Date']),
         ('Git-tracked file changes since previous run', ['git diff', 'Changed files']),
         ('Git log messages since previous run', ['git diff', 'Messages']),
