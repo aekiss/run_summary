@@ -554,20 +554,28 @@ if __name__ == '__main__':
                         default=None,
                         help="output file path; default is 'run_summary_<dir name on hh5>.csv';\
                         WARNING: will be overwritten")
-    parser.add_argument('path', metavar='path', type=str, nargs='?',
-                        help='ACCESS-OM2 control directory path; default is current working directory')
+    parser.add_argument('path', metavar='path', type=str, nargs='*',
+                        help='zero or more ACCESS-OM2 control directory paths; default is current working directory')
     args = parser.parse_args()
     outfile = vars(args)['outfile']
-    basepath = vars(args)['path']
+    basepaths = vars(args)['path']  # a list of length >=0 since nargs='*'
     if outfile is None:
-        if basepath is None:
+        if basepaths is None:
             run_summary()
         else:
-            run_summary(basepath=basepath)
+            for bp in basepaths:
+                try:
+                    run_summary(basepath=bp)
+                except:
+                    print('\nFailed.')
     else:
-        if basepath is None:
+        if basepaths is None:
             run_summary(outfile=outfile)
         else:
-            run_summary(basepath=basepath, outfile=outfile)
+            for bp in basepaths:
+                try:
+                    run_summary(basepath=bp, outfile=outfile)
+                except:
+                    print('\nFailed.')
 
 # TODO: run_diff : git diff between 2 runs
