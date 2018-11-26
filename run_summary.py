@@ -63,6 +63,8 @@ def parse_pbs_log(fname):
     output: dict
 
     example of PBS log file content to parse:
+        qsub -q expressbw -P x77 -l walltime=36000 -l ncpus=4 -l mem=128GB -N 01deg_jra55_i_c -l wd -j n -v PAYU_MODULENAME=payu/0.10,PYTHONPATH=/apps/payu/0.10/lib,PAYU_CURRENT_RUN=197,PAYU_MODULEPATH=/apps/Modules/modulefiles -W umask=027 /apps/payu/0.10/bin/payu-collate
+    ...
         git commit -am "2018-10-08 22:32:26: Run 137"
         TODO: Check if commit is unchanged
         ======================================================================================
@@ -81,6 +83,9 @@ def parse_pbs_log(fname):
     """
     def null(l):
         return l[1]
+
+    def getpayuversion(l):
+        return os.path.dirname(l[0].split(',')[0].split(':')[0])
 
     def getrun(l):
         return int(l[4].rstrip('"'))
@@ -111,6 +116,7 @@ def parse_pbs_log(fname):
         return int(round(float(ns)*units[s[len(ns):]]))
 
     search_items = {  # keys are strings to search for; items are functions to apply to whitespace-delimited list of strings following key
+        'PYTHONPATH=': getpayuversion,
         'git commit': getrun,  # NB: run with this number might have failed - check Exit Status
         'Resource Usage on': getdatetime,
         'Job Id': getjob,
@@ -138,7 +144,8 @@ def parse_pbs_log(fname):
                     continue
 
     # change to more self-explanatory keys
-    rename_keys = {'git commit': 'Run number',
+    rename_keys = {'PYTHONPATH=': 'payu version',
+                   'git commit': 'Run number',
                    'Resource Usage on': 'Run completion date'}
     for oldkey, newkey in rename_keys.items():
         parsed_items[newkey] = parsed_items.pop(oldkey)
@@ -461,6 +468,7 @@ def run_summary(basepath=os.getcwd(), outfile=None):
         ('MOM inputs', ['config.yaml', 'submodels-by-name', 'ocean', 'input']),
         ('CICE executable', ['config.yaml', 'submodels-by-name', 'ice', 'exe']),
         ('CICE inputs', ['config.yaml', 'submodels-by-name', 'ice', 'input']),
+        ('Payu version', ['PBS log', 'payu version']),
         ('Git hash of run', ['git log', 'Commit']),
         ('Commit date', ['git log', 'Date']),
         ('Git-tracked file changes since previous run', ['git diff', 'Changed files']),
@@ -567,7 +575,7 @@ if __name__ == '__main__':
                 try:
                     run_summary(basepath=bp)
                 except:
-                    print('\nFailed.')
+                    print('\nFailed. Error:', sys.exc_info())
     else:
         if basepaths is None:
             run_summary(outfile=outfile)
@@ -576,6 +584,6 @@ if __name__ == '__main__':
                 try:
                     run_summary(basepath=bp, outfile=outfile)
                 except:
-                    print('\nFailed.')
+                    print('\nFailed. Error:', sys.exc_info())
 
 # TODO: run_diff : git diff between 2 runs
