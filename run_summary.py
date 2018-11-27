@@ -63,7 +63,7 @@ def parse_pbs_log(fname):
     output: dict
 
     example of PBS log file content to parse:
-        qsub -q expressbw -P x77 -l walltime=36000 -l ncpus=4 -l mem=128GB -N 01deg_jra55_i_c -l wd -j n -v PAYU_MODULENAME=payu/0.10,PYTHONPATH=/apps/payu/0.10/lib,PAYU_CURRENT_RUN=197,PAYU_MODULEPATH=/apps/Modules/modulefiles -W umask=027 /apps/payu/0.10/bin/payu-collate
+        qsub -q normal -P g40 -l walltime=12600 -l ncpus=2064 -l mem=8256GB -N minimal_01deg_j -l wd -j n -v PAYU_MODULENAME=payu/dev,PYTHONPATH=/projects/access/apps/mnctools/0.1/lib:/projects/access/apps/mnctools/0.1/lib:/projects/access/apps/mnctools/0.1/lib:/projects/v45/apps/payu/dev/lib:/projects/access/apps/mnctools/0.1/lib:/projects/v45/python,PAYU_CURRENT_RUN=443,PAYU_MODULEPATH=/projects/v45/modules,PAYU_N_RUNS=10 -lother=hyperthread -W umask=027 /projects/v45/apps/payu/dev/bin/payu-run
     ...
         git commit -am "2018-10-08 22:32:26: Run 137"
         TODO: Check if commit is unchanged
@@ -81,11 +81,13 @@ def parse_pbs_log(fname):
         ======================================================================================
 
     """
-    def null(l):
+    def getproject(l):
         return l[1]
 
     def getpayuversion(l):
-        return os.path.dirname(l[0].split(',')[0].split(':')[0])
+        return os.path.dirname(os.path.dirname(l[-1]))
+        # return os.path.dirname([s for s in l[0].split(',')[0].split(':')
+        #                         if s.find('payu') > -1][0])
 
     def getrun(l):
         return int(l[4].rstrip('"'))
@@ -116,11 +118,11 @@ def parse_pbs_log(fname):
         return int(round(float(ns)*units[s[len(ns):]]))
 
     search_items = {  # keys are strings to search for; items are functions to apply to whitespace-delimited list of strings following key
-        'PYTHONPATH=': getpayuversion,
+        'PAYU_CURRENT_RUN': getpayuversion,
         'git commit': getrun,  # NB: run with this number might have failed - check Exit Status
         'Resource Usage on': getdatetime,
         'Job Id': getjob,
-        'Project': null,
+        'Project': getproject,
         'Exit Status': getint,
         'Service Units': getfloat,
         'NCPUs Requested': getint,
@@ -132,11 +134,12 @@ def parse_pbs_log(fname):
         'Walltime Used': getsec,
         'JobFS requested': getbytes,
         'JobFS used': getbytes}
-    parsed_items = search_items.fromkeys(search_items, None)
+    parsed_items = search_items.fromkeys(search_items, None)  # set defaults to None
 
     with open(fname, 'r') as infile:
         for line in infile:
-            #  NB: subsequent matches will replace earlier ones
+            # NB: subsequent matches will replace earlier ones
+            # NB: processes only the first match of each line
             for key, op in search_items.items():
                 try:
                     parsed_items[key] = op(line.split(key)[1].split())
@@ -144,11 +147,35 @@ def parse_pbs_log(fname):
                     continue
 
     # change to more self-explanatory keys
-    rename_keys = {'PYTHONPATH=': 'payu version',
+    rename_keys = {'PAYU_CURRENT_RUN': 'payu version',
                    'git commit': 'Run number',
+                   'Memory Requested': 'Memory Requested (bytes)',
+                   'Memory Used': 'Memory Used (bytes)',
+                   'Walltime requested': 'Walltime Requested (s)',
+                   'Walltime Used': 'Walltime Used (s)',
                    'Resource Usage on': 'Run completion date'}
     for oldkey, newkey in rename_keys.items():
         parsed_items[newkey] = parsed_items.pop(oldkey)
+
+    if parsed_items['Memory Requested (bytes)'] is None:
+        parsed_items['Memory Requested (Gb)'] = None
+    else:
+        parsed_items['Memory Requested (Gb)'] = parsed_items['Memory Requested (bytes)']/2**30
+
+    if parsed_items['Memory Used (bytes)'] is None:
+        parsed_items['Memory Used (Gb)'] = None
+    else:
+        parsed_items['Memory Used (Gb)'] = parsed_items['Memory Used (bytes)']/2**30
+
+    if parsed_items['Walltime Requested (s)'] is None:
+        parsed_items['Walltime Requested (hr)'] = None
+    else:
+        parsed_items['Walltime Requested (hr)'] = parsed_items['Walltime Requested (s)']/3600
+
+    if parsed_items['Walltime Used (s)'] is None:
+        parsed_items['Walltime Used (hr)'] = None
+    else:
+        parsed_items['Walltime Used (hr)'] = parsed_items['Walltime Used (s)']/3600
 
     return parsed_items
 
@@ -453,13 +480,16 @@ def run_summary(basepath=os.getcwd(), outfile=None):
         ('Run completion date', ['PBS log', 'Run completion date']),
         ('Queue', ['config.yaml', 'queue']),
         ('Service Units', ['PBS log', 'Service Units']),
-        ('Walltime Used (s)', ['PBS log', 'Walltime Used']),
+        ('Walltime Used (hr)', ['PBS log', 'Walltime Used (hr)']),
+        ('Memory Used (Gb)', ['PBS log', 'Memory Used (Gb)']),
         ('NCPUs Used', ['PBS log', 'NCPUs Used']),
-        ('MOM NCPUs', ['config.yaml', 'submodels-by-name', 'ocean', 'ncpus']),
         ('CICE NCPUs', ['config.yaml', 'submodels-by-name', 'ice', 'ncpus']),
+        ('MOM NCPUs', ['config.yaml', 'submodels-by-name', 'ocean', 'ncpus']),
+        ('MOM tile layout', ['namelists', 'ocean/input.nml', 'ocean_model_nml', 'layout']),
+        ('CICE tile distribution', ['namelists', 'ice/cice_in.nml', 'domain_nml', 'distribution_type']),
         ('Timestep (s)', ['timing', 'Timestep']),
-        ('ntdt', ['namelists', 'ice/cice_in.nml', 'setup_nml', 'ndtd']),
-        ('distribution_type', ['namelists', 'ice/cice_in.nml', 'domain_nml', 'distribution_type']),
+        ('MOM barotropic split', ['namelists', 'ocean/input.nml', 'ocean_model_nml', 'barotropic_split']),
+        ('CICE dynamic split (ndtd)', ['namelists', 'ice/cice_in.nml', 'setup_nml', 'ndtd']),
         ('ktherm', ['namelists', 'ice/cice_in.nml', 'thermo_nml', 'ktherm']),
         ('Common inputs', ['config.yaml', 'input']),
         ('Atmosphere executable', ['config.yaml', 'submodels-by-name', 'atmosphere', 'exe']),
