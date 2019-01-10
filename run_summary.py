@@ -362,10 +362,12 @@ def run_summary(basepath=os.getcwd(), outfile=None):
     run_data = dict()
     # NB: match jobname[:15] because in some cases the pbs log files use a shortened version of the jobname in config.yaml
     # e.g. see /home/157/amh157/payu/025deg_jra55_ryf8485
-    for f in glob.glob(os.path.join(basepath, 'archive/pbs_logs', jobname[:15] + '*.o*'))\
-           + glob.glob(os.path.join(basepath, jobname[:15] + '*.o*'))\
-           + glob.glob(os.path.join(sync_path, 'pbs_logs', jobname[:15] + '*.o*')):
-# NB: logs in archive may be duplicated in sync_path, in which case the latter is used
+    # NB: logs in archive may be duplicated in sync_path, in which case the latter is used
+    logfiles = glob.glob(os.path.join(basepath, 'archive/pbs_logs', jobname[:15] + '*.o*'))\
+             + glob.glob(os.path.join(basepath, jobname[:15] + '*.o*'))\
+             + glob.glob(os.path.join(sync_path, 'pbs_logs', jobname[:15] + '*.o*'))
+    logfiles = [f for f in logfiles if '_c.o' not in f]  # exclude collation files *_c.o*
+    for f in logfiles:
         print('.', end='', flush=True)
         jobid = int(f.split('.o')[1])
         run_data[jobid] = dict()
