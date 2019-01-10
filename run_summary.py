@@ -199,7 +199,6 @@ def parse_pbs_log(fname):
     except:
         parsed_items['Timeout'] = None
 
-    print(parsed_items)
     return parsed_items
 
 
