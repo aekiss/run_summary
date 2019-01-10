@@ -358,7 +358,6 @@ def run_summary(basepath=os.getcwd(), outfile=None):
                          stdout=subprocess.PIPE, shell=True)
     git_branch = p.communicate()[0].decode('ascii').strip()
 
-
     # get data from all PBS job logs
     run_data = dict()
     # NB: match jobname[:15] because in some cases the pbs log files use a shortened version of the jobname in config.yaml
@@ -465,6 +464,18 @@ def run_summary(basepath=os.getcwd(), outfile=None):
                      run_data[sortedjobids[max(i-1, 0)]]['git log']['Commit'],
                      run_data[jobid]['git log']['Commit'])
 
+    # count failed jobs prior to each successful run
+    # BUG: always have zero count between two successful runs straddling a jobid rollover
+    # BUG: first run also counts all fails after a rollover
+    prevjobid = -1
+    for i, jobid in enumerate(sortedjobids):
+        c = [e for e in all_run_data.keys() if e > prevjobid and e < jobid
+             and e not in run_data]
+        c.sort()
+        run_data[jobid]['PBS log']['Failed previous jobids'] = c
+        run_data[jobid]['PBS log']['Failed previous jobs'] = len(c)
+        prevjobid = jobid
+
     ###########################################################################
     # Specify the output format here.
     ###########################################################################
@@ -499,6 +510,8 @@ def run_summary(basepath=os.getcwd(), outfile=None):
         ('Run end', ['MOM_time_stamp.out', 'Model end time']),
         ('Run length (years, months, days, seconds)', ['timing', 'Run length']),
         ('Job Id', ['PBS log', 'Job Id']),
+        ('Failed previous jobs', ['PBS log', 'Failed previous jobs']),
+        ('Failed previous jobids', ['PBS log', 'Failed previous jobids']),
         ('Run completion date', ['PBS log', 'Run completion date']),
         ('Queue', ['config.yaml', 'queue']),
         ('Service Units', ['PBS log', 'Service Units']),
