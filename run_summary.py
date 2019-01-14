@@ -8,7 +8,7 @@ Author: Andrew Kiss https://github.com/aekiss
 Apache 2.0 License http://www.apache.org/licenses/LICENSE-2.0.txt
 """
 
-# TODO: subtract walltime from completion date to get run starting date/time
+# TODO: collect data on storage use on hh5 (and short?)
 # TODO: use starting date/time for determining git commit
 # TODO: use PAYU_N_RUNS - does this tell you whether the run is part of a sequence? if so we can determine queue wait for runs in a sequence - but sometimes it is None
 
@@ -26,6 +26,7 @@ import os
 import glob  # BUG: fails if payu module loaded - some sort of module clash with re
 import subprocess
 import datetime
+import dateutil.parser
 from collections import OrderedDict
 import csv
 import copy
@@ -245,16 +246,22 @@ def parse_mom_time_stamp(paths):
 
     """
     parsed_items = dict()
+    keys = ['Model start time', 'Model end time']
     for path in paths:
         fname = os.path.join(path, 'ocean/time_stamp.out')
         if os.path.isfile(fname):
             parsed_items['Time stamp file'] = fname
             with open(fname, 'r') as infile:
-                for key in ['Model start time', 'Model end time']:
+                for key in keys:
                     line = infile.readline()
                     parsed_items[key] = datetime.datetime(
                         *list(map(int, line.split()[0:-1]))).isoformat()
             break
+    d1 = dateutil.parser.parse(parsed_items[keys[0]])
+    d2 = dateutil.parser.parse(parsed_items[keys[1]])
+    len = d2-d1  # BUG: presumably assumes Gregorian calendar with leap years and time in UTC
+    parsed_items['Model run length (s)'] = len.total_seconds()
+    parsed_items['Model run length (days)'] = len.total_seconds()/3600/24
     return parsed_items
 
 
@@ -447,16 +454,20 @@ def run_summary(basepath=os.getcwd(), outfile=None):
     # make a 'timing' entry to contain model timestep and run length for both MATM and YATM runs
     # run length is [years, months, days, seconds] to accommodate both MATM and YATM
     for jobid in run_data:
+        r = run_data[jobid]
         timing = dict()
-        if run_data[jobid]['namelists']['accessom2.nml'] is None:  # non-YATM run
-            timing['Timestep'] = run_data[jobid]['config.yaml']['submodels'][1]['timestep']  # MOM timestep
-            rt = run_data[jobid]['config.yaml']['calendar']['runtime']
+        if r['namelists']['accessom2.nml'] is None:  # non-YATM run
+            timing['Timestep'] = r['config.yaml']['submodels'][1]['timestep']  # MOM timestep
+            rt = r['config.yaml']['calendar']['runtime']
             timing['Run length'] = [rt['years'], rt['months'], rt['days'], 0]  # insert 0 seconds
         else:
-            timing['Timestep'] = run_data[jobid]['namelists']['accessom2.nml']['accessom2_nml']['ice_ocean_timestep']
-            rp = run_data[jobid]['namelists']['accessom2.nml']['date_manager_nml']['restart_period']
+            timing['Timestep'] = r['namelists']['accessom2.nml']['accessom2_nml']['ice_ocean_timestep']
+            rp = r['namelists']['accessom2.nml']['date_manager_nml']['restart_period']
             timing['Run length'] = rp[0:2] + [0] + [rp[2]]  # insert 0 days
-        run_data[jobid]['timing'] = timing
+        yrs = r['MOM_time_stamp.out']['Model run length (days)']/365.25  # FUDGE: assumes 365.25-day year
+        timing['SU per model year'] = r['PBS log']['Service Units']/yrs
+        timing['Walltime (hr) per model year'] = r['PBS log']['Walltime Used (hr)']/yrs
+        r['timing'] = timing
 
     # include changes in all git commits since previous run
     for i, jobid in enumerate(sortedjobids):
@@ -511,6 +522,7 @@ def run_summary(basepath=os.getcwd(), outfile=None):
         ('Run start', ['MOM_time_stamp.out', 'Model start time']),
         ('Run end', ['MOM_time_stamp.out', 'Model end time']),
         ('Run length (years, months, days, seconds)', ['timing', 'Run length']),
+        ('Run length (days)', ['MOM_time_stamp.out', 'Model run length (days)']),
         ('Job Id', ['PBS log', 'Job Id']),
         ('Failed previous jobs', ['PBS log', 'Failed previous jobs']),
         ('Failed previous jobids', ['PBS log', 'Failed previous jobids']),
@@ -518,6 +530,8 @@ def run_summary(basepath=os.getcwd(), outfile=None):
         ('Queue', ['config.yaml', 'queue']),
         ('Service Units', ['PBS log', 'Service Units']),
         ('Walltime Used (hr)', ['PBS log', 'Walltime Used (hr)']),
+        ('SU per model year', ['timing', 'SU per model year']),
+        ('Walltime (hr) per model year', ['timing', 'Walltime (hr) per model year']),
         ('Memory Used (Gb)', ['PBS log', 'Memory Used (Gb)']),
         ('NCPUs Used', ['PBS log', 'NCPUs Used']),
         ('CICE NCPUs', ['config.yaml', 'submodels-by-name', 'ice', 'ncpus']),
