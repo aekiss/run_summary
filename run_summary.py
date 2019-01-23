@@ -8,9 +8,10 @@ Author: Andrew Kiss https://github.com/aekiss
 Apache 2.0 License http://www.apache.org/licenses/LICENSE-2.0.txt
 """
 
-# TODO: collect data on storage use on hh5 (and short?)
+# TODO: collect data on storage use on hh5 (and short?) with du -bs
 # TODO: use starting date/time for determining git commit
 # TODO: use PAYU_N_RUNS - does this tell you whether the run is part of a sequence? if so we can determine queue wait for runs in a sequence - but sometimes it is None
+# TODO: summary stats: specify list of excel commands e.g. ['sum', 'average', 'min', 'max'] as optional third tuple element in output_format and insert formulas for these. Or just calculate them in python? might as well, as Execel will save formulas as values if formulas aren't displayed...
 
 from __future__ import print_function
 import sys
@@ -131,12 +132,14 @@ def parse_pbs_log(fname):
 
     search_items = {  # keys are strings to search for; items are functions to apply to whitespace-delimited list of strings following key
         'PAYU_CURRENT_RUN': getpayuversion,  # gets path to payu; PAYU_CURRENT_RUN is redundant as this is obtained below from git commit message
+        # 'PAYU_CURRENT_RUN=': getpayuint,  # BUG: misses some runs
         'PAYU_MODULENAME=': getpayu,
         'PAYU_MODULEPATH=': getpayu,
         'PAYU_PATH=': getpayu,
         'LD_LIBRARY_PATH=': getpayu,
         'PAYU_N_RUNS=': getpayuint,
         'PYTHONPATH=': getpayu,
+# BUG: git commit will be missing if runlog: False in config.yaml - so we won't get run number!
         'git commit': getrun,  # instead of using PAYU_CURRENT_RUN; NB: run with this number might have failed - check Exit Status
         'Resource Usage on': getdatetime,
         'Job Id': getjob,
@@ -166,6 +169,7 @@ def parse_pbs_log(fname):
 
     # change to more self-explanatory keys
     rename_keys = {'PAYU_CURRENT_RUN': 'payu version',
+                   # 'PAYU_CURRENT_RUN=': 'Run number',
                    'git commit': 'Run number',
                    'Memory Requested': 'Memory Requested (bytes)',
                    'Memory Used': 'Memory Used (bytes)',
@@ -216,19 +220,23 @@ def parse_git_log(basepath, datestr):
     # possible BUG: what time zone flag should be use? local is problematic if run from overseas....?
     # use Popen for backwards-compatiblity with Python <2.7
     # pretty format is tab-delimited (%x09)
-    p = subprocess.Popen('cd ' + basepath
-                         + ' && git log -1 '
-                         + '--pretty="format:%H%x09%an%x09%ai%x09%B" '
-                         + '`git rev-list -1 --date=local --before="'
-                         + datestr + '" HEAD`',  # TODO: add 1 sec to datestr so we don't rely on the delay between git commit and PBS log?
-                         stdout=subprocess.PIPE, shell=True)
-    log = p.communicate()[0].decode('ascii').split('\t')
-    # log = p.communicate()[0].decode('ascii').encode('ascii').split('\t')  # for python 2.6
+    try:
+        p = subprocess.Popen('cd ' + basepath
+                             + ' && git log -1 '
+                             + '--pretty="format:%H%x09%an%x09%ai%x09%B" '
+                             + '`git rev-list -1 --date=local --before="'
+                             + datestr + '" HEAD`',  # TODO: add 1 sec to datestr so we don't rely on the delay between git commit and PBS log?
+                             stdout=subprocess.PIPE, shell=True)
+        log = p.communicate()[0].decode('ascii').split('\t')
+        # log = p.communicate()[0].decode('ascii').encode('ascii').split('\t')  # for python 2.6
+        log[3] = log[3].strip()  # strip whitespace from message
+    except:
+        log = [None]*4  # default values in case there's no .git, e.g. if runlog: False in config.yaml
     parsed_items = dict()
     parsed_items['Commit'] = log[0]
     parsed_items['Author'] = log[1]
     parsed_items['Date'] = log[2]
-    parsed_items['Message'] = log[3].strip()
+    parsed_items['Message'] = log[3]
     return parsed_items
 
 
@@ -311,21 +319,26 @@ def git_diff(basepath, sha1, sha2):
 
     sha1, sha2: strings; sha1 should be earlier than or same as sha2
     """
-    parsed_items = dict()
-    p = subprocess.Popen('cd ' + basepath
-                         + ' && git diff --name-only ' + sha1 + ' ' + sha2,
-                         stdout=subprocess.PIPE, shell=True)
-    parsed_items['Changed files'] = ', '.join(
-        p.communicate()[0].decode('ascii').split())
-    p = subprocess.Popen('cd ' + basepath
-                         + ' && git log --ancestry-path --pretty="%B\%x09" '
-                         + sha1 + '..' + sha2,
-                         stdout=subprocess.PIPE, shell=True)
-    m = [s.strip('\n\\') 
-         for s in p.communicate()[0].decode('ascii').split('\t')][0:-1]
-    m.reverse()  # put in chronological order
-    if len(m) == 0:
+    try:
+        p = subprocess.Popen('cd ' + basepath
+                             + ' && git diff --name-only ' + sha1 + ' ' + sha2,
+                             stdout=subprocess.PIPE, shell=True)
+        c = ', '.join(
+            p.communicate()[0].decode('ascii').split())
+        p = subprocess.Popen('cd ' + basepath
+                             + ' && git log --ancestry-path --pretty="%B\%x09" '
+                             + sha1 + '..' + sha2,
+                             stdout=subprocess.PIPE, shell=True)
+        m = [s.strip('\n\\') 
+             for s in p.communicate()[0].decode('ascii').split('\t')][0:-1]
+        m.reverse()  # put in chronological order
+        if len(m) == 0:
+            m = None
+    except:
+        c = None
         m = None
+    parsed_items = dict()
+    parsed_items['Changed files'] = c
     parsed_items['Messages'] = m  # NB: will be None if there's no direct ancestry path from sha1 to sha2)
     return parsed_items
 
@@ -360,10 +373,13 @@ def run_summary(basepath=os.getcwd(), outfile=None):
     if outfile is None:
         outfile = 'run_summary_' + os.path.split(sync_path)[1] + '.csv'
 
-    p = subprocess.Popen('cd ' + basepath
-                         + ' && git rev-parse --abbrev-ref HEAD',
-                         stdout=subprocess.PIPE, shell=True)
-    git_branch = p.communicate()[0].decode('ascii').strip()
+    try:
+        p = subprocess.Popen('cd ' + basepath
+                             + ' && git rev-parse --abbrev-ref HEAD',
+                             stdout=subprocess.PIPE, shell=True)
+        git_branch = p.communicate()[0].decode('ascii').strip()
+    except:
+        git_branch = None
 
     # get data from all PBS job logs
     run_data = dict()
