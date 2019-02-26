@@ -265,11 +265,14 @@ def parse_mom_time_stamp(paths):
                     parsed_items[key] = datetime.datetime(
                         *list(map(int, line.split()[0:-1]))).isoformat()
             break
-    d1 = dateutil.parser.parse(parsed_items[keys[0]])
-    d2 = dateutil.parser.parse(parsed_items[keys[1]])
-    len = d2-d1  # BUG: presumably assumes Gregorian calendar with leap years and time in UTC
-    parsed_items['Model run length (s)'] = len.total_seconds()
-    parsed_items['Model run length (days)'] = len.total_seconds()/3600/24
+    try:
+        d1 = dateutil.parser.parse(parsed_items[keys[0]])
+        d2 = dateutil.parser.parse(parsed_items[keys[1]])
+        len = d2-d1  # BUG: presumably assumes Gregorian calendar with leap years and time in UTC
+        parsed_items['Model run length (s)'] = len.total_seconds()
+        parsed_items['Model run length (days)'] = len.total_seconds()/3600/24
+    except KeyError:
+        pass
     return parsed_items
 
 
@@ -426,6 +429,8 @@ def run_summary(basepath=os.getcwd(), outfile=None):
         elif pbs['Run number'] is None:  # not a model run log file
             del run_data[jobid]
         elif pbs['Exit Status'] != 0:  # output dir belongs to this job only if Exit Status = 0
+            del run_data[jobid]
+        elif len(run_data[jobid]['config.yaml']) == 0:  # output dir missing
             del run_data[jobid]
 
     # (jobid, run number) tuples sorted by run number - re-done below
