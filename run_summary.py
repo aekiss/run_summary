@@ -289,7 +289,7 @@ def parse_config_yaml(paths):
         fname = os.path.join(path, 'config.yaml')
         if os.path.isfile(fname):
             with open(fname, 'r') as infile:
-                parsed_items = yaml.load(infile)
+                parsed_items = yaml.load(infile, Loader=yaml.FullLoader)
             break
     return parsed_items
 
@@ -370,7 +370,7 @@ def run_summary(basepath=os.getcwd(), outfile=None):
 
     # get jobname from config.yaml -- NB: we assume this is the same for all jobs
     with open(os.path.join(basepath, 'config.yaml'), 'r') as infile:
-        jobname = yaml.load(infile)['jobname']
+        jobname = yaml.load(infile, Loader=yaml.FullLoader)['jobname']
 
     sync_path = get_sync_path(os.path.join(basepath, 'sync_output_to_gdata.sh'))
     if outfile is None:
