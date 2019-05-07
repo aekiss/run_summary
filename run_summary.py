@@ -294,6 +294,45 @@ def parse_config_yaml(paths):
     return parsed_items
 
 
+def parse_accessom2_out(paths):
+    """
+    Return dict of items from parsed access-om2.out.
+
+    paths: list of base paths
+
+    output: dict of timing names, with dict of statistics
+
+    NB: output may also contain bad data from intermingled CICE output.
+    """
+    def num(s):
+        try:
+            return int(s)
+        except ValueError:
+            try:
+                return float(s)
+            except ValueError:
+                return s
+    parsed_items = dict()
+    for path in paths:
+        fname = os.path.join(path, 'access-om2.out')
+        if os.path.isfile(fname):
+            with open(fname, 'r') as infile:
+                for l in infile:
+                    if l.startswith('Tabulating mpp_clock statistics'):
+                        break
+                for l in infile:
+                    if l.startswith('                                          tmin'):
+                        break
+                keys = l.split()
+                for l in infile:
+                    if l.startswith(' MPP_STACK high water mark='):
+                        break
+                    name = l[0:32].strip()  # relies on name being cropped at 32 chars
+                    vals = [num(n) for n in l[32:].split()]
+                    parsed_items[name] = dict(zip(keys, vals))
+            break
+    return parsed_items
+
 def parse_nml(paths):
     """
     Return dict of items from parsed namelists.
@@ -416,6 +455,7 @@ def run_summary(basepath=os.getcwd(), outfile=None):
                 run_data[jobid]['MOM_time_stamp.out'] = parse_mom_time_stamp(paths)
                 run_data[jobid]['config.yaml'] = parse_config_yaml(paths)
                 run_data[jobid]['namelists'] = parse_nml(paths)
+                run_data[jobid]['access-om2.out'] = parse_accessom2_out(paths)
 
     all_run_data = copy.deepcopy(run_data)  # all_run_data includes failed jobs
 
@@ -555,8 +595,9 @@ def run_summary(basepath=os.getcwd(), outfile=None):
         ('Walltime (hr) per model year', ['timing', 'Walltime (hr) per model year']),
         ('Memory Used (Gb)', ['PBS log', 'Memory Used (Gb)']),
         ('NCPUs Used', ['PBS log', 'NCPUs Used']),
-        ('CICE NCPUs', ['config.yaml', 'submodels-by-name', 'ice', 'ncpus']),
         ('MOM NCPUs', ['config.yaml', 'submodels-by-name', 'ocean', 'ncpus']),
+        ('CICE NCPUs', ['config.yaml', 'submodels-by-name', 'ice', 'ncpus']),
+        ('Fraction of MOM runtime in oasis_recv', ['access-om2.out', 'oasis_recv', 'tfrac']),
         ('MOM tile layout', ['namelists', 'ocean/input.nml', 'ocean_model_nml', 'layout']),
         ('CICE tile distribution', ['namelists', 'ice/cice_in.nml', 'domain_nml', 'distribution_type']),
         ('Timestep (s)', ['timing', 'Timestep']),
