@@ -12,7 +12,7 @@ You can also put `run_summary.py` and `nmltab.py` anywhere in your search path a
 
 Usage details:
 ```
-run_summary.py [-h] [-o file] [path [path ...]]
+usage: run_summary.py [-h] [-l] [-o file] [path [path ...]]
 
 positional arguments:
   path                  zero or more ACCESS-OM2 control directory paths;
@@ -20,6 +20,8 @@ positional arguments:
 
 optional arguments:
   -h, --help            show this help message and exit
+  -l, --list            list all data that could be tabulated by adding it to
+                        output_format
   -o file, --outfile file
                         output file path; default is 'run_summary_<dir name on
                         hh5>.csv'; WARNING: will be overwritten
@@ -28,8 +30,8 @@ optional arguments:
 ### Customising the output
 To customise what is output, simply edit `output_format` in `run_summary.py`.
 
-`run_summary.py` collects much more data than it outputs by default to the .csv file so there are plenty of extra things to add if you want them.  Changes to any variable in any .nml file will automatically be output. 
-
+`run_summary.py` collects much more data than it outputs by default to the .csv file so there are plenty of extra things to add if you want them. Run with the `--list` option to see a list of available data you can add to `output_format`. Changes to any variable in any .nml file will automatically be output.
+  
 ## Requirements
 - Requires Python 3, [nmltab](https://github.com/aekiss/nmltab) and a reasonably recent version of git.
 - On NCI you may need to do something like this:

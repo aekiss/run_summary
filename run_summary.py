@@ -401,7 +401,68 @@ def dictget(d, l):
     return dictget(dl0, l[1:])
 
 
-def run_summary(basepath=os.getcwd(), outfile=None):
+def keylists(d):
+    """
+    Return list of key lists to every leaf node in a nested dict.
+    Each key list can be used as an argument to dictget.
+
+    d: nested dict
+    """
+    l = []
+    for k, v in d.items():
+        if isinstance(v, dict):
+            sublists = keylists(v)
+            for sli in sublists:
+                l.append([k]+sli)
+        else:
+            l.append([k])
+    return l
+
+
+def recursive_superset(d):
+    """
+    Return dict of groups and variables present in any of the input Namelists.
+
+    Intended design:
+    Input is a dict of dicts
+    Output is a dict whose keys are a supserset of the keys in the input dict's sub-dicts.
+    Output values are also supersets if they are dicts
+
+    TODO: finish! Currently just returns one of the sub-dicts
+
+    Parameters
+    ----------
+    d : dict
+
+    Returns
+    -------
+    dict
+
+    """
+    # copied from nmltab:
+    # # if len(nmlall) == 1:  # just do a deep copy of the only value
+    # #     nmlsuperset = copy.deepcopy(nmlall[list(nmlall.keys())[0]])
+    # # else:
+    # nmlsuperset = {}
+    # for nml in nmlall:
+    #     nmlsuperset.update(nmlall[nml])
+    # # nmlsuperset now contains all groups that were in any nml
+    # for group in nmlsuperset:
+    #     # to avoid the next bit changing the original groups
+    #     nmlsuperset[group] = nmlsuperset[group].copy()
+    #     # if isinstance(nmlallsuperset[group], list):
+    #     #     for gr in nmlall[nml][group]:
+    #     #         nmlsuperset[group].update(gr)
+    #     for nml in nmlall:
+    #         if group in nmlall[nml]:
+    #             nmlsuperset[group].update(nmlall[nml][group])
+    # # nmlsuperset groups now contain all keys that were in any nml
+    # return nmlsuperset
+    for v in d.values():
+        return v  # dummy for testing
+
+
+def run_summary(basepath=os.getcwd(), outfile=None, list_available=False):
     '''
     Generate run summary
     '''
@@ -550,6 +611,15 @@ def run_summary(basepath=os.getcwd(), outfile=None):
         run_data[jobid]['PBS log']['Failed previous jobs'] = len(c)
         prevjobid = jobid
 
+    if list_available:
+        print('\nInformation which can be tabulated if added to output_format:')
+        keyliststr = []
+        for k in keylists(recursive_superset(run_data)):
+            keyliststr.append("['" + "', '".join(k) + "']")
+        keyliststr.sort()
+        for k in keyliststr:
+            print(k)
+
     ###########################################################################
     # Specify the output format here.
     ###########################################################################
@@ -557,7 +627,7 @@ def run_summary(basepath=os.getcwd(), outfile=None):
     # keys are headers (must be unique)
     # values are lists of keys into run_data (omitting job id)
     #
-    # run_data dict structure:
+    # run_data dict structure (use list_available for full details):
     #
     # run_data dict
     #    L___ job ID dict
@@ -566,6 +636,7 @@ def run_summary(basepath=os.getcwd(), outfile=None):
     #           L___ 'git diff' dict
     #           L___ 'MOM_time_stamp.out' dict
     #           L___ 'config.yaml' dict
+    #           L___ 'access-om2.out' dict
     #           L___ 'timing' dict
     #           L___ 'namelists' dict
     #                   L___ 'accessom2.nml' namelist (or None if non-YATM run)
@@ -692,6 +763,7 @@ def run_summary(basepath=os.getcwd(), outfile=None):
         for jobid in sortedjobids:
             csvw.writerow([dictget(run_data, [jobid] + keylist) for keylist in output_format.values()])
     print('Done.')
+
     return
 
 
@@ -700,6 +772,9 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=
         'Summarise ACCESS-OM2 runs.\
         Latest version and help: https://github.com/aekiss/run_summary')
+    parser.add_argument('-l', '--list',
+                        action='store_true', default=False,
+                        help='list all data that could be tabulated by adding it to output_format')
     parser.add_argument('-o', '--outfile', type=str,
                         metavar='file',
                         default=None,
@@ -708,6 +783,7 @@ if __name__ == '__main__':
     parser.add_argument('path', metavar='path', type=str, nargs='*',
                         help='zero or more ACCESS-OM2 control directory paths; default is current working directory')
     args = parser.parse_args()
+    lst = vars(args)['list']
     outfile = vars(args)['outfile']
     basepaths = vars(args)['path']  # a list of length >=0 since nargs='*'
     if outfile is None:
@@ -716,7 +792,7 @@ if __name__ == '__main__':
         else:
             for bp in basepaths:
                 try:
-                    run_summary(basepath=bp)
+                    run_summary(basepath=bp, list_available=lst)
                 except:
                     print('\nFailed. Error:', sys.exc_info())
     else:
@@ -725,7 +801,7 @@ if __name__ == '__main__':
         else:
             for bp in basepaths:
                 try:
-                    run_summary(basepath=bp, outfile=outfile)
+                    run_summary(basepath=bp, outfile=outfile, list_available=lst)
                 except:
                     print('\nFailed. Error:', sys.exc_info())
 
