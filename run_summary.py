@@ -294,6 +294,19 @@ def parse_config_yaml(paths):
     return parsed_items
 
 
+def num(s):
+    """
+    Return input string as int or float if possible, otherwise return string.
+    """
+    try:
+        return int(s)
+    except ValueError:
+        try:
+            return float(s)
+        except ValueError:
+            return s
+
+
 def parse_accessom2_out(paths):
     """
     Return dict of items from parsed access-om2.out.
@@ -304,14 +317,6 @@ def parse_accessom2_out(paths):
 
     NB: output may also contain bad data from intermingled CICE output.
     """
-    def num(s):
-        try:
-            return int(s)
-        except ValueError:
-            try:
-                return float(s)
-            except ValueError:
-                return s
     parsed_items = dict()
     for path in paths:
         fname = os.path.join(path, 'access-om2.out')
@@ -462,10 +467,11 @@ def recursive_superset(d):
         return v  # dummy for testing
 
 
-def run_summary(basepath=os.getcwd(), outfile=None, list_available=False):
-    '''
+def run_summary(basepath=os.getcwd(), outfile=None, list_available=False,
+                dump_all=False):
+    """
     Generate run summary
-    '''
+    """
     print('Reading run data from ' + basepath, end='')
 
     # get jobname from config.yaml -- NB: we assume this is the same for all jobs
@@ -619,6 +625,12 @@ def run_summary(basepath=os.getcwd(), outfile=None, list_available=False):
         keyliststr.sort()
         for k in keyliststr:
             print(k)
+
+    if dump_all:
+        dumpoutfile = os.path.splitext(outfile)[0]+'.yaml'
+        print('\nWriting', dumpoutfile)
+        with open(dumpoutfile, 'w') as outf:
+            yaml.dump(run_data, outf, default_flow_style=False)
 
     ###########################################################################
     # Specify the output format here.
@@ -775,6 +787,9 @@ if __name__ == '__main__':
     parser.add_argument('-l', '--list',
                         action='store_true', default=False,
                         help='list all data that could be tabulated by adding it to output_format')
+    parser.add_argument('-d', '--dump_all',
+                        action='store_true', default=False,
+                        help='also dump all data to <outfile>.yaml')
     parser.add_argument('-o', '--outfile', type=str,
                         metavar='file',
                         default=None,
@@ -784,24 +799,27 @@ if __name__ == '__main__':
                         help='zero or more ACCESS-OM2 control directory paths; default is current working directory')
     args = parser.parse_args()
     lst = vars(args)['list']
+    dump_all = vars(args)['dump_all']
     outfile = vars(args)['outfile']
     basepaths = vars(args)['path']  # a list of length >=0 since nargs='*'
     if outfile is None:
         if basepaths is None:
-            run_summary()
+            run_summary(list_available=lst, dump_all=dump_all)
         else:
             for bp in basepaths:
                 try:
-                    run_summary(basepath=bp, list_available=lst)
+                    run_summary(basepath=bp, list_available=lst,
+                                dump_all=dump_all)
                 except:
                     print('\nFailed. Error:', sys.exc_info())
     else:
         if basepaths is None:
-            run_summary(outfile=outfile)
+            run_summary(outfile=outfile, list_available=lst, dump_all=dump_all)
         else:
             for bp in basepaths:
                 try:
-                    run_summary(basepath=bp, outfile=outfile, list_available=lst)
+                    run_summary(basepath=bp, outfile=outfile, 
+                                list_available=lst, dump_all=dump_all)
                 except:
                     print('\nFailed. Error:', sys.exc_info())
 
