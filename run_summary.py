@@ -338,6 +338,59 @@ def parse_accessom2_out(paths):
             break
     return parsed_items
 
+
+def parse_cice_timing(paths):
+    """
+    Return dict of cice timing info from ice/ice_diag.d.
+
+    paths: list of base paths
+
+    output: dict of timing names, with dict of statistics
+    """
+#     sample to parse:
+# Timing information:
+# 
+# Timer   1:     Total   10894.88 seconds
+#   Timer stats (node): min =    10894.69 seconds
+#                       max =    10894.88 seconds
+#                       mean=    10894.70 seconds
+#   Timer stats(block): min =        0.00 seconds
+#                       max =        0.00 seconds
+#                       mean=        0.00 seconds
+# Timer   2:  TimeLoop   10802.50 seconds
+#   Timer stats (node): min =    10802.33 seconds
+#                       max =    10802.50 seconds
+#                       mean=    10802.33 seconds
+#   Timer stats(block): min =        0.00 seconds
+#                       max =        0.00 seconds
+#                       mean=        0.00 seconds
+
+    parsed_items = dict()
+    for path in paths:
+        fname = os.path.join(path, 'ice/ice_diag.d')
+        if os.path.isfile(fname):
+            with open(fname, 'r') as infile:
+                for l in infile:
+                    if l.startswith('Timing information:'):
+                        break
+                for l in infile:
+                    if l.startswith('Timer'):  # ignore time is it it node max
+                        timerkey = ' '.join(l[0:21].split()[2:])
+                        parsed_items[timerkey] = dict()
+                    else:
+                        if l.startswith('  Timer'):
+                            typekey = l.split('(')[-1].split(')')[0]
+                            parsed_items[timerkey][typekey] = dict()
+                        try:
+                            key = l.split('=')[0].split()[-1]
+                            val = num(l.split()[-2])
+                            parsed_items[timerkey][typekey][key] = val
+                        except:
+                            pass
+            break
+    return parsed_items
+
+
 def parse_nml(paths):
     """
     Return dict of items from parsed namelists.
@@ -523,6 +576,7 @@ def run_summary(basepath=os.getcwd(), outfile=None, list_available=False,
                 run_data[jobid]['config.yaml'] = parse_config_yaml(paths)
                 run_data[jobid]['namelists'] = parse_nml(paths)
                 run_data[jobid]['access-om2.out'] = parse_accessom2_out(paths)
+                run_data[jobid]['ice_diag.d'] = parse_cice_timing(paths)
 
     all_run_data = copy.deepcopy(run_data)  # all_run_data includes failed jobs
 
@@ -681,6 +735,9 @@ def run_summary(basepath=os.getcwd(), outfile=None, list_available=False,
         ('MOM NCPUs', ['config.yaml', 'submodels-by-name', 'ocean', 'ncpus']),
         ('CICE NCPUs', ['config.yaml', 'submodels-by-name', 'ice', 'ncpus']),
         ('Fraction of MOM runtime in oasis_recv', ['access-om2.out', 'oasis_recv', 'tfrac']),
+        ('Max MOM wait for oasis_recv (s)', ['access-om2.out', 'oasis_recv', 'tmax']),
+        ('Max CICE wait for coupler (s)', ['ice_diag.d', 'waiting_o', 'node', 'max']),
+        ('Max CICE I/O time (s)', ['ice_diag.d', 'ReadWrite', 'node', 'max']),
         ('MOM tile layout', ['namelists', 'ocean/input.nml', 'ocean_model_nml', 'layout']),
         ('CICE tile distribution', ['namelists', 'ice/cice_in.nml', 'domain_nml', 'distribution_type']),
         ('Timestep (s)', ['timing', 'Timestep']),
