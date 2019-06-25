@@ -42,6 +42,20 @@ except ImportError:  # BUG: don't get this exception if payu module loaded, even
     raise
 import nmltab  # from https://github.com/aekiss/nmltab
 
+
+def num(s):
+    """
+    Return input string as int or float if possible, otherwise return string.
+    """
+    try:
+        return int(s)
+    except ValueError:
+        try:
+            return float(s)
+        except ValueError:
+            return s
+
+
 def get_sync_path(fname):
     """
     Return GDATADIR path from sync_output_to_gdata.sh.
@@ -294,19 +308,6 @@ def parse_config_yaml(paths):
     return parsed_items
 
 
-def num(s):
-    """
-    Return input string as int or float if possible, otherwise return string.
-    """
-    try:
-        return int(s)
-    except ValueError:
-        try:
-            return float(s)
-        except ValueError:
-            return s
-
-
 def parse_accessom2_out(paths):
     """
     Return dict of items from parsed access-om2.out.
@@ -336,6 +337,50 @@ def parse_accessom2_out(paths):
                     vals = [num(n) for n in l[32:].split()]
                     parsed_items[name] = dict(zip(keys, vals))
             break
+    return parsed_items
+
+
+def parse_ice_diag_d(paths):
+    """
+    Return dict of cice info from ice/ice_diag.d.
+
+    paths: list of base paths
+
+    output: dict
+    """
+    # this is pretty rough-and-ready, e.g. repeated entries end up containing the final value
+    parsed_items = dict()
+    for path in paths:
+        fname = os.path.join(path, 'ice/ice_diag.d')
+        if os.path.isfile(fname):
+            with open(fname, 'r') as infile:
+                for l in infile:
+                    if l.startswith('Timing information:'):
+                        break  # handle timing data with parse_cice_timing
+                    try:
+                        key = l.split('=')[0].strip()
+                        val = num(l.split('=')[1].strip())
+                        parsed_items[key] = val
+                    except:
+                        try:
+                            key = l.split(':')[0].strip()
+                            val = num(l.split(':')[1].strip())
+                            parsed_items[key] = val
+                        except:
+                            pass
+            break
+
+    if 'Block size:  nx_block' in parsed_items:
+        parsed_items['nx_block'] = parsed_items['Block size:  nx_block']
+# NB: in ice_blocks.F90
+#       nx_block = block_size_x + 2*nghost,   &!  x,y dir including ghost
+#       ny_block = block_size_y + 2*nghost     !  cells 
+    if 'Number of ghost cells' in parsed_items:
+        if 'nx_block' in parsed_items:
+            parsed_items['block_size_x'] = parsed_items['nx_block'] - 2*parsed_items['Number of ghost cells']
+        if 'ny_block' in parsed_items:
+            parsed_items['block_size_y'] = parsed_items['ny_block'] - 2*parsed_items['Number of ghost cells']
+    parsed_items['timing'] = parse_cice_timing(paths)
     return parsed_items
 
 
@@ -576,7 +621,7 @@ def run_summary(basepath=os.getcwd(), outfile=None, list_available=False,
                 run_data[jobid]['config.yaml'] = parse_config_yaml(paths)
                 run_data[jobid]['namelists'] = parse_nml(paths)
                 run_data[jobid]['access-om2.out'] = parse_accessom2_out(paths)
-                run_data[jobid]['ice_diag.d'] = parse_cice_timing(paths)
+                run_data[jobid]['ice_diag.d'] = parse_ice_diag_d(paths)
 
     all_run_data = copy.deepcopy(run_data)  # all_run_data includes failed jobs
 
@@ -736,10 +781,12 @@ def run_summary(basepath=os.getcwd(), outfile=None, list_available=False,
         ('CICE NCPUs', ['config.yaml', 'submodels-by-name', 'ice', 'ncpus']),
         ('Fraction of MOM runtime in oasis_recv', ['access-om2.out', 'oasis_recv', 'tfrac']),
         ('Max MOM wait for oasis_recv (s)', ['access-om2.out', 'oasis_recv', 'tmax']),
-        ('Max CICE wait for coupler (s)', ['ice_diag.d', 'waiting_o', 'node', 'max']),
-        ('Max CICE I/O time (s)', ['ice_diag.d', 'ReadWrite', 'node', 'max']),
+        ('Max CICE wait for coupler (s)', ['ice_diag.d', 'timing', 'waiting_o', 'node', 'max']),
+        ('Max CICE I/O time (s)', ['ice_diag.d', 'timing', 'ReadWrite', 'node', 'max']),
         ('MOM tile layout', ['namelists', 'ocean/input.nml', 'ocean_model_nml', 'layout']),
         ('CICE tile distribution', ['namelists', 'ice/cice_in.nml', 'domain_nml', 'distribution_type']),
+        ('CICE block_size_x', ['ice_diag.d', 'block_size_x']),
+        ('CICE block_size_y', ['ice_diag.d', 'block_size_y']),
         ('Timestep (s)', ['timing', 'Timestep']),
         ('MOM barotropic split', ['namelists', 'ocean/input.nml', 'ocean_model_nml', 'barotropic_split']),
         ('CICE dynamic split (ndtd)', ['namelists', 'ice/cice_in.nml', 'setup_nml', 'ndtd']),
