@@ -522,47 +522,18 @@ def keylists(d):
     return l
 
 
-def recursive_superset(d):
+def keylistssuperset(d):
     """
-    Return dict of groups and variables present in any of the input Namelists.
+    Apply keylists to every value at the top level of input dict d,
+    and return a list containing one instance of every key list found.
+    Each key list can be used as an argument to dictget.
 
-    Intended design:
-    Input is a dict of dicts
-    Output is a dict whose keys are a supserset of the keys in the input dict's sub-dicts.
-    Output values are also supersets if they are dicts
-
-    TODO: finish! Currently just returns one of the sub-dicts
-
-    Parameters
-    ----------
-    d : dict
-
-    Returns
-    -------
-    dict
-
+    d: nested dict whose values are to be supplied to keylists
     """
-    # copied from nmltab:
-    # # if len(nmlall) == 1:  # just do a deep copy of the only value
-    # #     nmlsuperset = copy.deepcopy(nmlall[list(nmlall.keys())[0]])
-    # # else:
-    # nmlsuperset = {}
-    # for nml in nmlall:
-    #     nmlsuperset.update(nmlall[nml])
-    # # nmlsuperset now contains all groups that were in any nml
-    # for group in nmlsuperset:
-    #     # to avoid the next bit changing the original groups
-    #     nmlsuperset[group] = nmlsuperset[group].copy()
-    #     # if isinstance(nmlallsuperset[group], list):
-    #     #     for gr in nmlall[nml][group]:
-    #     #         nmlsuperset[group].update(gr)
-    #     for nml in nmlall:
-    #         if group in nmlall[nml]:
-    #             nmlsuperset[group].update(nmlall[nml][group])
-    # # nmlsuperset groups now contain all keys that were in any nml
-    # return nmlsuperset
+    all = set()
     for v in d.values():
-        return v  # dummy for testing
+        all.update(['\b'.join(l) for l in keylists(v)])
+    return [s.split('\b') for s in all]
 
 
 def run_summary(basepath=os.getcwd(), outfile=None, list_available=False,
@@ -719,7 +690,7 @@ def run_summary(basepath=os.getcwd(), outfile=None, list_available=False,
     if list_available:
         print('\nInformation which can be tabulated if added to output_format:')
         keyliststr = []
-        for k in keylists(recursive_superset(run_data)):
+        for k in keylistssuperset(run_data):
             keyliststr.append("['" + "', '".join(k) + "']")
         keyliststr.sort()
         for k in keyliststr:
