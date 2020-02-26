@@ -20,7 +20,7 @@ try:
 except AssertionError:
     print('\nFatal error: Python version too old.')
     print('On NCI, do the following and try again:')
-    print('   module use /g/data3/hh5/public/modules; module load conda/analysis3\n')
+    print('   module use /g/data/hh5/public/modules; module load conda/analysis3\n')
     raise
 
 import os
@@ -38,7 +38,7 @@ try:
 except ImportError:  # BUG: don't get this exception if payu module loaded, even if on python 2.6.6
     print('\nFatal error: modules not available.')
     print('On NCI, do the following and try again:')
-    print('   module use /g/data3/hh5/public/modules; module load conda/analysis3\n')
+    print('   module use /g/data/hh5/public/modules; module load conda/analysis3\n')
     raise
 import nmltab  # from https://github.com/aekiss/nmltab
 
