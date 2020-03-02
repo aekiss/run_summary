@@ -599,9 +599,21 @@ def run_summary(basepath=os.getcwd(), outfile=None, list_available=False,
 
     all_run_data = copy.deepcopy(run_data)  # all_run_data includes failed jobs
 
+
     if show_fails:
-        # jobid keys into run_data sorted by jobid
-        sortedjobids = sorted(run_data.keys())
+        # remove all jobs that have no PBS info in log file
+        for jobid in all_run_data:
+            if all_run_data[jobid]['PBS log']['Run completion date'] is None:
+                del run_data[jobid]
+        # (jobid, run completion date) tuples sorted by run completion date
+        jobid_run_tuples = sorted([(k, v['PBS log']['Run completion date'])
+                                   for (k, v) in run_data.items()],
+                                  key=lambda t: t[1])
+        if len(jobid_run_tuples) == 0:
+            print('\nAborting: no jobs?')
+            return
+        # jobid keys into run_data sorted by run completion date
+        sortedjobids = [k[0] for k in jobid_run_tuples]
     else:
         # remove failed jobs from run_data
         for jobid in all_run_data:
