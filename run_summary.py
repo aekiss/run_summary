@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 """
 
 Tools to summarise access-om2 runs.
@@ -537,7 +537,7 @@ def keylistssuperset(d):
 
 
 def run_summary(basepath=os.getcwd(), outfile=None, list_available=False,
-                dump_all=False):
+                dump_all=False, show_fails=False):
     """
     Generate run summary
     """
@@ -550,6 +550,9 @@ def run_summary(basepath=os.getcwd(), outfile=None, list_available=False,
     sync_path = get_sync_path(os.path.join(basepath, 'sync_output_to_gdata.sh'))
     if outfile is None:
         outfile = 'run_summary_' + os.path.split(sync_path)[1] + '.csv'
+        # if show_fails:
+        #     outfile = os.path.splitext(outfile)[0]+'_fails.csv'
+
 
     try:
         p = subprocess.Popen('cd ' + basepath
@@ -596,96 +599,100 @@ def run_summary(basepath=os.getcwd(), outfile=None, list_available=False,
 
     all_run_data = copy.deepcopy(run_data)  # all_run_data includes failed jobs
 
-    # remove failed jobs from run_data
-    for jobid in all_run_data:
-        print('.', end='', flush=True)
-        pbs = all_run_data[jobid]['PBS log']
-        date = pbs['Run completion date']
-        if date is None:  # no PBS info in log file
-            del run_data[jobid]
-        elif pbs['Run number'] is None:  # not a model run log file
-            del run_data[jobid]
-        elif pbs['Exit Status'] != 0:  # output dir belongs to this job only if Exit Status = 0
-            del run_data[jobid]
-        elif len(run_data[jobid]['config.yaml']) == 0:  # output dir missing
-            del run_data[jobid]
+    if show_fails:
+        # jobid keys into run_data sorted by jobid
+        sortedjobids = sorted(run_data.keys())
+    else:
+        # remove failed jobs from run_data
+        for jobid in all_run_data:
+            print('.', end='', flush=True)
+            pbs = all_run_data[jobid]['PBS log']
+            date = pbs['Run completion date']
+            if date is None:  # no PBS info in log file
+                del run_data[jobid]
+            elif pbs['Run number'] is None:  # not a model run log file
+                del run_data[jobid]
+            elif pbs['Exit Status'] != 0:  # output dir belongs to this job only if Exit Status = 0
+                del run_data[jobid]
+            elif len(run_data[jobid]['config.yaml']) == 0:  # output dir missing
+                del run_data[jobid]
 
-    # (jobid, run number) tuples sorted by run number - re-done below
-    jobid_run_tuples = sorted([(k, v['PBS log']['Run number'])
-                               for (k, v) in run_data.items()],
-                              key=lambda t: t[1])
-    if len(jobid_run_tuples) == 0:
-        print('\nAborting: no successful jobs?')
-        return
+        # (jobid, run number) tuples sorted by run number - re-done below
+        jobid_run_tuples = sorted([(k, v['PBS log']['Run number'])
+                                   for (k, v) in run_data.items()],
+                                  key=lambda t: t[1])
+        if len(jobid_run_tuples) == 0:
+            print('\nAborting: no successful jobs?')
+            return
 
-# Remove the older jobid if run number is duplicated - assume run was re-done
-# (check by date rather than jobid, since jobid sometimes rolls over)
-    prev_jobid_run = jobid_run_tuples[0]
-    for jobid_run in jobid_run_tuples[1:]:
-        if jobid_run[1] == prev_jobid_run[1]:  # duplicated run number
-            if run_data[jobid_run[0]]['PBS log']['Run completion date']\
-             > run_data[prev_jobid_run[0]]['PBS log']['Run completion date']:
-                del run_data[prev_jobid_run[0]]
-                prev_jobid_run = jobid_run
+    # Remove the older jobid if run number is duplicated - assume run was re-done
+    # (check by date rather than jobid, since jobid sometimes rolls over)
+        prev_jobid_run = jobid_run_tuples[0]
+        for jobid_run in jobid_run_tuples[1:]:
+            if jobid_run[1] == prev_jobid_run[1]:  # duplicated run number
+                if run_data[jobid_run[0]]['PBS log']['Run completion date']\
+                 > run_data[prev_jobid_run[0]]['PBS log']['Run completion date']:
+                    del run_data[prev_jobid_run[0]]
+                    prev_jobid_run = jobid_run
+                else:
+                    del run_data[jobid_run[0]]
             else:
-                del run_data[jobid_run[0]]
-        else:
-            prev_jobid_run = jobid_run
+                prev_jobid_run = jobid_run
 
-    # re-do (jobid, run number) tuples sorted by run number
-    jobid_run_tuples = sorted([(k, v['PBS log']['Run number'])
-                               for (k, v) in run_data.items()],
-                              key=lambda t: t[1])
-    if len(jobid_run_tuples) == 0:
-        print('\nAborting: no successful jobs?')
-        return
+        # re-do (jobid, run number) tuples sorted by run number
+        jobid_run_tuples = sorted([(k, v['PBS log']['Run number'])
+                                   for (k, v) in run_data.items()],
+                                  key=lambda t: t[1])
+        if len(jobid_run_tuples) == 0:
+            print('\nAborting: no successful jobs?')
+            return
 
-    # jobid keys into run_data sorted by run number
-    sortedjobids = [k[0] for k in jobid_run_tuples]
+        # jobid keys into run_data sorted by run number
+        sortedjobids = [k[0] for k in jobid_run_tuples]
 
-    # allow referencing by submodel name as well as list index
-    for jobid in run_data:
-        run_data[jobid]['config.yaml']['submodels-by-name'] = dict()
-        for sm in run_data[jobid]['config.yaml']['submodels']:
-            run_data[jobid]['config.yaml']['submodels-by-name'][sm['name']] = sm
+        # allow referencing by submodel name as well as list index
+        for jobid in run_data:
+            run_data[jobid]['config.yaml']['submodels-by-name'] = dict()
+            for sm in run_data[jobid]['config.yaml']['submodels']:
+                run_data[jobid]['config.yaml']['submodels-by-name'][sm['name']] = sm
 
-    # make a 'timing' entry to contain model timestep and run length for both MATM and YATM runs
-    # run length is [years, months, days, seconds] to accommodate both MATM and YATM
-    for jobid in run_data:
-        r = run_data[jobid]
-        timing = dict()
-        if r['namelists']['accessom2.nml'] is None:  # non-YATM run
-            timing['Timestep'] = r['config.yaml']['submodels'][1]['timestep']  # MOM timestep
-            rt = r['config.yaml']['calendar']['runtime']
-            timing['Run length'] = [rt['years'], rt['months'], rt['days'], 0]  # insert 0 seconds
-        else:
-            timing['Timestep'] = r['namelists']['accessom2.nml']['accessom2_nml']['ice_ocean_timestep']
-            rp = r['namelists']['accessom2.nml']['date_manager_nml']['restart_period']
-            timing['Run length'] = rp[0:2] + [0] + [rp[2]]  # insert 0 days
-        yrs = r['MOM_time_stamp.out']['Model run length (days)']/365.25  # FUDGE: assumes 365.25-day year
-        timing['SU per model year'] = r['PBS log']['Service Units']/yrs
-        timing['Walltime (hr) per model year'] = r['PBS log']['Walltime Used (hr)']/yrs
-        r['timing'] = timing
+        # make a 'timing' entry to contain model timestep and run length for both MATM and YATM runs
+        # run length is [years, months, days, seconds] to accommodate both MATM and YATM
+        for jobid in run_data:
+            r = run_data[jobid]
+            timing = dict()
+            if r['namelists']['accessom2.nml'] is None:  # non-YATM run
+                timing['Timestep'] = r['config.yaml']['submodels'][1]['timestep']  # MOM timestep
+                rt = r['config.yaml']['calendar']['runtime']
+                timing['Run length'] = [rt['years'], rt['months'], rt['days'], 0]  # insert 0 seconds
+            else:
+                timing['Timestep'] = r['namelists']['accessom2.nml']['accessom2_nml']['ice_ocean_timestep']
+                rp = r['namelists']['accessom2.nml']['date_manager_nml']['restart_period']
+                timing['Run length'] = rp[0:2] + [0] + [rp[2]]  # insert 0 days
+            yrs = r['MOM_time_stamp.out']['Model run length (days)']/365.25  # FUDGE: assumes 365.25-day year
+            timing['SU per model year'] = r['PBS log']['Service Units']/yrs
+            timing['Walltime (hr) per model year'] = r['PBS log']['Walltime Used (hr)']/yrs
+            r['timing'] = timing
 
-    # include changes in all git commits since previous run
-    for i, jobid in enumerate(sortedjobids):
-        print('.', end='', flush=True)
-        run_data[jobid]['git diff'] = \
-            git_diff(basepath,
-                     run_data[sortedjobids[max(i-1, 0)]]['git log']['Commit'],
-                     run_data[jobid]['git log']['Commit'])
+        # include changes in all git commits since previous run
+        for i, jobid in enumerate(sortedjobids):
+            print('.', end='', flush=True)
+            run_data[jobid]['git diff'] = \
+                git_diff(basepath,
+                         run_data[sortedjobids[max(i-1, 0)]]['git log']['Commit'],
+                         run_data[jobid]['git log']['Commit'])
 
-    # count failed jobs prior to each successful run
-    # BUG: always have zero count between two successful runs straddling a jobid rollover
-    # BUG: first run also counts all fails after a rollover
-    prevjobid = -1
-    for i, jobid in enumerate(sortedjobids):
-        c = [e for e in all_run_data.keys() if e > prevjobid and e < jobid
-             and e not in run_data]
-        c.sort()
-        run_data[jobid]['PBS log']['Failed previous jobids'] = c
-        run_data[jobid]['PBS log']['Failed previous jobs'] = len(c)
-        prevjobid = jobid
+        # count failed jobs prior to each successful run
+        # BUG: always have zero count between two successful runs straddling a jobid rollover
+        # BUG: first run also counts all fails after a rollover
+        prevjobid = -1
+        for i, jobid in enumerate(sortedjobids):
+            c = [e for e in all_run_data.keys() if e > prevjobid and e < jobid
+                 and e not in run_data]
+            c.sort()
+            run_data[jobid]['PBS log']['Failed previous jobids'] = c
+            run_data[jobid]['PBS log']['Failed previous jobs'] = len(c)
+            prevjobid = jobid
 
     if list_available:
         print('\nInformation which can be tabulated if added to output_format:')
@@ -777,7 +784,21 @@ def run_summary(basepath=os.getcwd(), outfile=None, list_available=False,
         ])
     ###########################################################################
 
-    if True:  # whether to output all namelist changes
+    if show_fails:
+        # output crash-related info (redefines order of any keys already in output_format)
+        output_format_prefix = OrderedDict([
+            ('Job Id', ['PBS log', 'Job Id']),
+            ('Run completion date', ['PBS log', 'Run completion date']),
+            ('Exit Status', ['PBS log', 'Exit Status']),
+            ('Timeout', ['PBS log', 'Timeout']),
+            ('Walltime Requested (hr)', ['PBS log', 'Walltime Requested (hr)']),
+            ('Walltime Used (hr)', ['PBS log', 'Walltime Used (hr)']),
+            ('qsub_flags', ['config.yaml', 'qsub_flags']),
+            ])
+        output_format_prefix.update(output_format)
+        output_format = output_format_prefix
+    else:
+        # output all namelist changes
         output_format_nmls = OrderedDict()
         nmls_any_runs = set(run_data[list(run_data.keys())[0]]['namelists'].keys())
         nmls_all_runs = nmls_any_runs
@@ -859,6 +880,9 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=
         'Summarise ACCESS-OM2 runs.\
         Latest version and help: https://github.com/aekiss/run_summary')
+    parser.add_argument('-f', '--show_fails',
+                        action='store_true', default=False,
+                        help='include failed runs (disables some output columns)')
     parser.add_argument('-l', '--list',
                         action='store_true', default=False,
                         help='list all data that could be tabulated by adding it to output_format')
@@ -873,28 +897,32 @@ if __name__ == '__main__':
     parser.add_argument('path', metavar='path', type=str, nargs='*',
                         help='zero or more ACCESS-OM2 control directory paths; default is current working directory')
     args = parser.parse_args()
+    show_fails = vars(args)['show_fails']
     lst = vars(args)['list']
     dump_all = vars(args)['dump_all']
     outfile = vars(args)['outfile']
     basepaths = vars(args)['path']  # a list of length >=0 since nargs='*'
     if outfile is None:
         if basepaths is None:
-            run_summary(list_available=lst, dump_all=dump_all)
+            run_summary(show_fails=show_fails, list_available=lst,
+                        dump_all=dump_all)
         else:
             for bp in basepaths:
                 try:
-                    run_summary(basepath=bp, list_available=lst,
-                                dump_all=dump_all)
+                    run_summary(show_fails=show_fails, basepath=bp,
+                                list_available=lst, dump_all=dump_all)
                 except:
                     print('\nFailed. Error:', sys.exc_info())
     else:
         if basepaths is None:
-            run_summary(outfile=outfile, list_available=lst, dump_all=dump_all)
+            run_summary(show_fails=show_fails, outfile=outfile,
+                        list_available=lst, dump_all=dump_all)
         else:
             for bp in basepaths:
                 try:
-                    run_summary(basepath=bp, outfile=outfile, 
-                                list_available=lst, dump_all=dump_all)
+                    run_summary(show_fails=show_fails, basepath=bp,
+                                outfile=outfile, list_available=lst,
+                                dump_all=dump_all)
                 except:
                     print('\nFailed. Error:', sys.exc_info())
 

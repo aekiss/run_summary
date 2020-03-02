@@ -12,7 +12,7 @@ You can also put `run_summary.py` and `nmltab.py` anywhere in your search path a
 
 Usage details:
 ```
-usage: run_summary.py [-h] [-l] [-d] [-o file] [path [path ...]]
+usage: run_summary.py [-h] [-f] [-l] [-d] [-o file] [path [path ...]]
 
 positional arguments:
   path                  zero or more ACCESS-OM2 control directory paths;
@@ -20,6 +20,7 @@ positional arguments:
 
 optional arguments:
   -h, --help            show this help message and exit
+  -f, --show_fails      include failed runs (disables some output columns)
   -l, --list            list all data that could be tabulated by adding it to
                         output_format
   -d, --dump_all        also dump all data to <outfile>.yaml
