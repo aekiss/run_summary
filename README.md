@@ -25,8 +25,9 @@ optional arguments:
                         output_format
   -d, --dump_all        also dump all data to <outfile>.yaml
   -o file, --outfile file
-                        output file path; default is 'run_summary_<dir name on
-                        hh5>.csv'; WARNING: will be overwritten
+                        output file path; default is 'run_summary_<sync dir
+                        path>.csv' or 'run_summary_<path>.csv' if sync dir
+                        path is invalid; WARNING: will be overwritten
 ```
 
 ### Customising the .csv output
