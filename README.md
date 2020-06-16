@@ -10,9 +10,9 @@ The simplest way to run it is to put `run_summary.py` and `nmltab.py` (from [her
 
 You can also put `run_summary.py` and `nmltab.py` anywhere in your search path and then do `run_summary.py my/control/dir/path` to specify which ACCESS-OM2 control directory to summarise. You can also use wildcards to summarise multiple ACCESS-OM2 control directories.
 
-Usage details:
+### Usage details:
 ```
-usage: run_summary.py [-h] [-f] [-l] [-d] [-o file] [path [path ...]]
+usage: run_summary.py [-h] [-f] [-l] [-d] [-o file] [--outfile_syncdir] [path [path ...]]
 
 positional arguments:
   path                  zero or more ACCESS-OM2 control directory paths;
@@ -25,9 +25,13 @@ optional arguments:
                         output_format
   -d, --dump_all        also dump all data to <outfile>.yaml
   -o file, --outfile file
-                        output file path; default is 'run_summary_<sync dir
+                        output file path; default is 'run_summary_<path>.csv';
+                        overrides --outfile_syncdir if set. WARNING: output
+                        file will be overwritten
+  --outfile_syncdir     set output file path to 'run_summary_<sync dir
                         path>.csv' or 'run_summary_<path>.csv' if sync dir
-                        path is invalid; WARNING: will be overwritten
+                        path is invalid; ignored if '-o', '--outfile' is set.
+                        WARNING: output file will be overwritten
 ```
 
 ### Customising the .csv output
