@@ -32,7 +32,8 @@ optional arguments:
                         path>.csv' or 'run_summary_<path>.csv' if sync dir
                         path is invalid; ignored if '-o', '--outfile' is set.
                         WARNING: output file will be overwritten
-```
+  --no_header           don't output header in output .csv
+ ```
 
 ### Customising the .csv output
 To customise what is output, simply edit `output_format` in `run_summary.py`.
