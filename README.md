@@ -32,11 +32,12 @@ optional arguments:
                         path>.csv' or 'run_summary_<path>.csv' if sync dir
                         path is invalid; ignored if '-o', '--outfile' is set.
                         WARNING: output file will be overwritten
-  --no_header           don't output header in output .csv
+  --no_header           don't write header rows in output .csv
+  --no_stats            don't output summary statistics
  ```
 
 ### Customising the .csv output
-To customise what is output, simply edit `output_format` in `run_summary.py`.
+To customise what is output, simply edit `output_format` in `run_summary.py`. You can also change the summary statistics by editing `stats`.
 
 `run_summary.py` collects much more data than it outputs by default to the .csv file so there are plenty of extra things to add if you want them. Run with the `--list` option to see a list of available data you can add to `output_format`. Changes to any variable in any .nml file will automatically be output.
   
