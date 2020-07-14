@@ -292,20 +292,22 @@ def parse_mom_time_stamp(paths):
     return parsed_items
 
 
-def parse_config_yaml(paths):
+def parse_yaml(paths, filename):
     """
-    Return dict of items from parsed config.yaml.
+    Return dict of items from parsed yaml file.
 
     paths: list of base paths
+    filename: yaml filename to attempt to read from base paths
 
-    output: dict parsed from first matching config.yaml in paths
+    output: dict parsed from first matching filename in paths
     """
     parsed_items = dict()
     for path in paths:
-        fname = os.path.join(path, 'config.yaml')
-        if os.path.isfile(fname):
-            with open(fname, 'r') as infile:
-                parsed_items = yaml.load(infile, Loader=yaml.FullLoader)
+        fpath = os.path.join(path, filename)
+        if os.path.isfile(fpath):
+            with open(fpath, 'r') as infile:
+                # Need to use load_all to handle manifests. Only return final part.
+                parsed_items = list(yaml.load_all(infile, Loader=yaml.FullLoader))[-1]
             break
     return parsed_items
 
@@ -665,10 +667,13 @@ def run_summary(basepath=os.getcwd(), outfile=None, list_available=False,
                             round(bytes/1073741824, 3)
 
                 run_data[jobid]['MOM_time_stamp.out'] = parse_mom_time_stamp(paths)
-                run_data[jobid]['config.yaml'] = parse_config_yaml(paths)
                 run_data[jobid]['namelists'] = parse_nml(paths)
                 run_data[jobid]['access-om2.out'] = parse_accessom2_out(paths)
                 run_data[jobid]['ice_diag.d'] = parse_ice_diag_d(paths)
+                run_data[jobid]['metadata.yaml'] = parse_yaml([basepath, sync_path], 'metadata.yaml')
+                for fn in ['config.yaml', 'env.yaml', 'job.yaml',
+                           'manifests/exe.yaml', 'manifests/input.yaml', 'manifests/restart.yaml']:
+                    run_data[jobid][fn] = parse_yaml(paths, fn)
 
     all_run_data = copy.deepcopy(run_data)  # all_run_data includes failed jobs
 
