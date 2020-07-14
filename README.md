@@ -39,7 +39,7 @@ optional arguments:
 ### Customising the .csv output
 To customise what is output, simply edit `output_format` in `run_summary.py`. You can also change the summary statistics by editing `stats`.
 
-`run_summary.py` collects much more data than it outputs by default to the .csv file so there are plenty of extra things to add if you want them. Run with the `--list` option to see a list of available data you can add to `output_format`. Changes to any variable in any .nml file will automatically be output.
+`run_summary.py` collects much more data than it outputs by default to the .csv file so there are plenty of extra things to add if you want them. Run with the `--list` option to see a list of available data you can add to `output_format` (but you may need to edit some keys to ensure uniqueness). Changes to any variable in any .nml file will automatically be output.
   
 ## Requirements
 - Requires Python 3, [nmltab](https://github.com/aekiss/nmltab) and a reasonably recent version of git.

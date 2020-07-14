@@ -28,9 +28,9 @@ import dateutil.parser
 from collections import OrderedDict
 import csv
 import copy
-import numpy as np
 
 try:
+    import numpy as np
     import yaml
     import f90nml  # from https://f90nml.readthedocs.io/en/latest/
 except ImportError:  # BUG: don't get this exception if payu module loaded, even if on python 2.6.6
@@ -607,6 +607,7 @@ def run_summary(basepath=os.getcwd(), outfile=None, list_available=False,
         run_data[jobid]['paths']['Control path'] = basepath
         run_data[jobid]['paths']['Sync path'] = sync_path
         run_data[jobid]['paths']['Archive path'] = archive_path
+        run_data[jobid]['storage'] = dict()
 
     # get run data for all jobs
     for jobid in run_data:
@@ -651,6 +652,17 @@ def run_summary(basepath=os.getcwd(), outfile=None, list_available=False,
                 run_data[jobid]['paths']['Restart path'] =\
                     run_data[jobid]['paths'].get('Sync restart path') or\
                     run_data[jobid]['paths'].get('Archive restart path')
+
+                # find GiB for output and restart
+                for k in ['Output path', 'Restart path']:
+                    path = run_data[jobid]['paths'][k]
+                    if path:
+                        p = subprocess.Popen('du -bs ' + path,
+                                             stdout=subprocess.PIPE, shell=True)
+                        ret = p.communicate()[0].decode('ascii')
+                        bytes = int(ret.split()[0])
+                        run_data[jobid]['storage'][k + ' GiB'] = \
+                            round(bytes/1073741824, 3)
 
                 run_data[jobid]['MOM_time_stamp.out'] = parse_mom_time_stamp(paths)
                 run_data[jobid]['config.yaml'] = parse_config_yaml(paths)
@@ -746,6 +758,9 @@ def run_summary(basepath=os.getcwd(), outfile=None, list_available=False,
             yrs = r['MOM_time_stamp.out']['Model run length (days)']/365.25  # FUDGE: assumes 365.25-day year
             timing['SU per model year'] = r['PBS log']['Service Units']/yrs
             timing['Walltime (hr) per model year'] = r['PBS log']['Walltime Used (hr)']/yrs
+            storagekeys = list(r['storage'].keys())
+            for k in storagekeys:
+                timing[k + ' per model year'] = round(r['storage'][k]/yrs, 3)
 
             if prevjobid >= 0:  # also record time including wait between runs
                 d1 = dateutil.parser.parse(run_data[prevjobid]['PBS log']['Run completion date'])
@@ -755,6 +770,8 @@ def run_summary(basepath=os.getcwd(), outfile=None, list_available=False,
                 timing['Wait (hr) between this run and previous'] = tot_walltime - r['PBS log']['Walltime Used (hr)']
                 timing['SU per calendar day'] = r['PBS log']['Service Units']/tot_walltime*24
                 timing['Model years per calendar day'] = yrs/tot_walltime*24
+                for k in storagekeys:
+                    timing[k + ' per calendar day'] = round(r['storage'][k]/tot_walltime*24, 3)
 
             r['timing'] = timing
             prevjobid = jobid
@@ -780,13 +797,15 @@ def run_summary(basepath=os.getcwd(), outfile=None, list_available=False,
             prevjobid = jobid
 
     if list_available:
-        print('\nInformation which can be tabulated if added to output_format:')
-        keyliststr = []
+        print('\nAvailable data which can be tabulated if added to output_format')
+        print('(but you may need to edit some keys to ensure uniqueness):')
+        keylist = []
         for k in keylistssuperset(run_data):
-            keyliststr.append("['" + "', '".join(k) + "']")
-        keyliststr.sort()
-        for k in keyliststr:
-            print(k)
+            keylist.append((k[-1], "['" + "', '".join(k) + "']"))
+        keylist.sort(key = lambda x: x[1])
+        maxkeywidth = max([len(k[0]) for k in keylist])
+        for k in keylist:
+            print("        ('" + k[0] + "', " + " "*(maxkeywidth-len(k[0])) + k[1] + "),")
 
     if dump_all:
         dumpoutfile = os.path.splitext(outfile)[0]+'.yaml'
@@ -797,10 +816,11 @@ def run_summary(basepath=os.getcwd(), outfile=None, list_available=False,
     ###########################################################################
     # Specify the output format here.
     ###########################################################################
-    # output_format is a list of (key, value) tuples, one for each column.
-    # keys are headers (arbitrary but must be unique)
-    # values are lists of keys into run_data (omitting job id), eg as obtained
-    #    from run_summary.py --list
+    # output_format is a OrderedDict of (key, value) tuples, one for each column.
+    # keys are column headers (arbitrary but must be unique)
+    # values are lists of keys into run_data (omitting job id)
+    # "run_summary.py --list" will list all available data you can add here
+    #    (but you may need to edit some keys to ensure uniqueness)
     output_format = OrderedDict([
         ('Run', ['PBS log', 'Run number']),
         ('Run start', ['MOM_time_stamp.out', 'Model start time']),
@@ -811,7 +831,9 @@ def run_summary(basepath=os.getcwd(), outfile=None, list_available=False,
         # ('Archive directory', ['paths', 'Archive path']),
         # ('Sync directory', ['paths', 'Sync path']),
         ('Output directory', ['paths', 'Output path']),
+        ('Output GiB', ['storage', 'Output path GiB']),
         ('Restart directory', ['paths', 'Restart path']),
+        ('Restart GiB', ['storage', 'Restart path GiB']),
         ('Run by', ['git log', 'Author']),
         ('Run completion date', ['PBS log', 'Run completion date']),
         ('Job Id', ['PBS log', 'Job Id']),
@@ -969,7 +991,7 @@ def run_summary(basepath=os.getcwd(), outfile=None, list_available=False,
                 coldata = [c for c in coldata if c is not None]
                 statsdata[k] = {label:tryfunc(func, coldata) for (label, func) in stats.items()}
             # write summary stats
-            csvw.writerow([None])
+            csvw.writerow(lhcol + [None]*len(list(output_format.keys())))  # blank row
             csvw.writerow(lhcol + list(output_format.keys()))  # header
             for s in stats:
                 csvw.writerow([s] + [statsdata[k][s] for k in statsdata.keys()])
