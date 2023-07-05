@@ -42,6 +42,8 @@ import nmltab  # from https://github.com/aekiss/nmltab
 import warnings
 warnings.simplefilter('ignore', np.RankWarning)
 
+yaml.add_representer(OrderedDict, lambda dumper, data: dumper.represent_mapping('tag:yaml.org,2002:map', data.items()))
+
 
 def num(s):
     """
@@ -458,7 +460,7 @@ def parse_nml(paths):
         for fname in fnames:
             if os.path.isfile(fname):  # no accessom2.nml for non-YATM run
                 parsed_items[fname.split(path)[1].strip('/')] \
-                        = f90nml.read(fname)
+                        = f90nml.read(fname).todict()
     return parsed_items
 
 
