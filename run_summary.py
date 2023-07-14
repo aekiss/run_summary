@@ -175,7 +175,10 @@ def parse_pbs_log(fname):
         'Walltime Used': getsec,
         'JobFS requested': getbytes,
         'JobFS used': getbytes}
+
     parsed_items = search_items.fromkeys(search_items, None)  # set defaults to None
+    parsed_items['PBS log file'] = fname
+    parsed_items['PBS log file jobid'] = int(fname.split('.o')[1])
 
     with open(fname, 'r') as infile:
         for line in infile:
@@ -604,10 +607,10 @@ def run_summary(basepath=os.getcwd(), outfile=None, list_available=False,
     logfiles = [f for f in logfiles if '_c.o' not in f]  # exclude collation files *_c.o*
     for f in logfiles:
         print('.', end='', flush=True)
-        jobid = int(f.split('.o')[1])
+        pbsdict = parse_pbs_log(f)
+        jobid = '_'.join([str(pbsdict[k]) for k in ['Job Id', 'PAYU_N_RUNS=']])
         run_data[jobid] = dict()
-        run_data[jobid]['PBS log'] = parse_pbs_log(f)
-        run_data[jobid]['PBS log']['PBS log file'] = f
+        run_data[jobid]['PBS log'] = pbsdict
         # fudge: these paths might actually apply only to the latest job
         run_data[jobid]['paths'] = dict()
         run_data[jobid]['paths']['Control path'] = basepath
@@ -752,7 +755,7 @@ def run_summary(basepath=os.getcwd(), outfile=None, list_available=False,
 
         # make a 'timing' entry to contain model timestep and run length for both MATM and YATM runs
         # run length is [years, months, days, seconds] to accommodate both MATM and YATM
-        prevjobid = -1
+        prevjobid = None
         for jobid in sortedjobids:
             r = run_data[jobid]
             timing = dict()
@@ -771,7 +774,7 @@ def run_summary(basepath=os.getcwd(), outfile=None, list_available=False,
             for k in storagekeys:
                 timing[k + ' per model year'] = round(r['storage'][k]/yrs, 3)
 
-            if prevjobid >= 0:  # also record time including wait between runs
+            if prevjobid is not None:  # also record time including wait between runs
                 d1 = dateutil.parser.parse(run_data[prevjobid]['PBS log']['Run completion date'])
                 d2 = dateutil.parser.parse(r['PBS log']['Run completion date'])
                 tot_walltime = (d2-d1).total_seconds()/3600
@@ -796,14 +799,17 @@ def run_summary(basepath=os.getcwd(), outfile=None, list_available=False,
         # count failed jobs prior to each successful run
         # BUG: always have zero count between two successful runs straddling a jobid rollover
         # BUG: first run also counts all fails after a rollover
-        prevjobid = -1
+        run_data_fjobids = [ r['PBS log']['PBS log file jobid'] for r in run_data.values() ]
+        all_run_data_fjobids = [ r['PBS log']['PBS log file jobid'] for r in all_run_data.values() ]
+        prevfjobid = -1
         for jobid in sortedjobids:
-            c = [e for e in all_run_data.keys() if e > prevjobid and e < jobid
-                 and e not in run_data]
+            fjobid = run_data[jobid]['PBS log']['PBS log file jobid']
+            c = [e for e in all_run_data_fjobids if e > prevfjobid and e < fjobid
+                 and e not in run_data_fjobids]
             c.sort()
             run_data[jobid]['PBS log']['Failed previous jobids'] = c
             run_data[jobid]['PBS log']['Failed previous jobs'] = len(c)
-            prevjobid = jobid
+            prevfjobid = fjobid
 
     if list_available:
         print('\nAvailable data which can be tabulated if added to output_format')
