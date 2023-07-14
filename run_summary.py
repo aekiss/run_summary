@@ -608,7 +608,7 @@ def run_summary(basepath=os.getcwd(), outfile=None, list_available=False,
     for f in logfiles:
         print('.', end='', flush=True)
         pbsdict = parse_pbs_log(f)
-        jobid = '_'.join([str(pbsdict[k]) for k in ['Job Id', 'PAYU_N_RUNS=']])
+        jobid = '_'.join([str(pbsdict[k]) for k in ['PBS log file jobid', 'PAYU_N_RUNS=']])
         run_data[jobid] = dict()
         run_data[jobid]['PBS log'] = pbsdict
         # fudge: these paths might actually apply only to the latest job
