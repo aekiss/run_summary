@@ -152,7 +152,7 @@ def parse_pbs_log(fname):
 
     search_items = {  # keys are strings to search for; items are functions to apply to whitespace-delimited list of strings following key
         'PAYU_CURRENT_RUN': getpayuversion,  # gets path to payu; PAYU_CURRENT_RUN is redundant as this is obtained below from git commit message
-        # 'PAYU_CURRENT_RUN=': getpayuint,  # BUG: misses some runs
+        'PAYU_CURRENT_RUN=': getpayuint,
         'PAYU_MODULENAME=': getpayu,
         'PAYU_MODULEPATH=': getpayu,
         'PAYU_PATH=': getpayu,
@@ -608,7 +608,7 @@ def run_summary(basepath=os.getcwd(), outfile=None, list_available=False,
     for f in logfiles:
         print('.', end='', flush=True)
         pbsdict = parse_pbs_log(f)
-        jobid = '_'.join([str(pbsdict[k]) for k in ['PBS log file jobid', 'PAYU_N_RUNS=']])
+        jobid = '_'.join([str(pbsdict[k]) for k in ['PBS log file jobid', 'PAYU_CURRENT_RUN=', 'PAYU_N_RUNS=']])
         run_data[jobid] = dict()
         run_data[jobid]['PBS log'] = pbsdict
         # fudge: these paths might actually apply only to the latest job
