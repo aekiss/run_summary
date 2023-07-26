@@ -573,6 +573,12 @@ def run_summary(basepath=os.getcwd(), outfile=None, list_available=False,
         jobname = configyaml.get('jobname')
         sync_script = configyaml.get('postscript')
 
+    if sync_script is None:  # fallbacks in case postscript is missing/commented out in config.yaml
+        for sync_script_name in ['sync_data.sh', 'sync_to_gdata.sh', 'sync_output_to_gdata.sh']:
+            if os.path.isfile(os.path.join(basepath, sync_script_name)):
+                sync_script = sync_script_name
+                break
+
     if sync_script:
         sync_path = get_sync_path(os.path.join(basepath, sync_script))
     else:
